@@ -49,39 +49,51 @@ def ingest_all(client: Neo4jClient):
 
 
 def ingest_relationships(client: Neo4jClient):
+    """Load relationships from evaluation tables (pwc-archive format).
+
+    Structure: each entry has task (str), datasets (list of
+    {dataset: str, sota: {rows: [{model_name, metrics: {name: value}}]}})
+    """
     print("Ingesting relationships...")
-    with open(Path("../data/evaluations.json")) as f:
+    eval_path = Path(__file__).parent.parent.parent.parent.parent / "data" / "evaluations.json"
+    with open(eval_path) as f:
         evals = json.load(f)
-    for ev in tqdm(evals[:10000]):
-        task_name    = ev.get("task",    {}).get("task_name",    "")
-        dataset_name = ev.get("dataset", {}).get("dataset_name", "")
-        if not task_name or not dataset_name:
+
+    for ev in tqdm(evals):
+        task_name = ev.get("task", "")
+        if not task_name:
             continue
-        client.run_query(
-            "MERGE (t:Task {id: $id}) ON CREATE SET t.name = $name",
-            {"id": task_name, "name": task_name},
-        )
-        client.run_query("""
-            MATCH (d:Dataset {name: $dname})
-            MATCH (t:Task    {name: $tname})
-            MERGE (d)-[:USED_FOR]->(t)
-        """, {"dname": dataset_name, "tname": task_name})
-        for row in ev.get("sota_rows", [])[:5]:
-            method_name = row.get("method_name", "")
-            if not method_name:
+
+        for ds_entry in ev.get("datasets", []):
+            dataset_name = ds_entry.get("dataset", "")
+            if not dataset_name:
                 continue
-            for metric in row.get("metrics", []):
-                client.run_query("""
-                    MATCH (m:Method  {name: $mname})
-                    MATCH (d:Dataset {name: $dname})
-                    MERGE (m)-[r:EVALUATED_ON {metric: $metric}]->(d)
-                    SET r.score = $score
-                """, {
-                    "mname":  method_name,
-                    "dname":  dataset_name,
-                    "metric": metric.get("metric", ""),
-                    "score":  str(metric.get("value", "")),
-                })
+
+            # Link dataset -> task
+            client.run_query("""
+                MATCH (d:Dataset {name: $dname})
+                MATCH (t:Task    {name: $tname})
+                MERGE (d)-[:USED_FOR]->(t)
+            """, {"dname": dataset_name, "tname": task_name})
+
+            # Link methods -> dataset via sota rows
+            for row in (ds_entry.get("sota", {}).get("rows", []))[:5]:
+                method_name = row.get("model_name", "")
+                if not method_name:
+                    continue
+                metrics = row.get("metrics", {})
+                for metric_name, metric_value in metrics.items():
+                    client.run_query("""
+                        MATCH (m:Method  {name: $mname})
+                        MATCH (d:Dataset {name: $dname})
+                        MERGE (m)-[r:EVALUATED_ON {metric: $metric}]->(d)
+                        SET r.score = $score
+                    """, {
+                        "mname":  method_name,
+                        "dname":  dataset_name,
+                        "metric": metric_name,
+                        "score":  str(metric_value),
+                    })
     print("✓ Relationships done")
 
 

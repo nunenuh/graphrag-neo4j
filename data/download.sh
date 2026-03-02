@@ -2,22 +2,43 @@
 set -e
 
 # Ensure the data directory exists
-mkdir -p data
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$SCRIPT_DIR"
 
-# New official Papers With Code data source (Hugging Face)
-BASE="https://huggingface.co/datasets/paperswithcode/paperswithcode-data/resolve/main"
+# Source: pwc-archive on Hugging Face (last public snapshot, Jul 2025)
+BASE="https://huggingface.co/datasets/pwc-archive/files/resolve/main"
 
-echo "Downloading official data dumps..."
+echo "Downloading Papers With Code data dumps..."
 
-# Use -Lk to follow redirects and bypass local SSL certificate issues
-curl -Lk "$BASE/papers-with-abstracts.json.gz" -o data/papers.json.gz
-curl -Lk "$BASE/methods.json.gz"               -o data/methods.json.gz
-curl -Lk "$BASE/tasks.json.gz"                 -o data/tasks.json.gz
-curl -Lk "$BASE/datasets.json.gz"              -o data/datasets.json.gz
-curl -Lk "$BASE/evaluation-tables.json.gz"     -o data/evaluations.json.gz
+curl -Lk "$BASE/jul-29-papers-with-abstracts.json.gz" -o "$SCRIPT_DIR/papers.json.gz"
+curl -Lk "$BASE/jul-28-methods.json.gz"               -o "$SCRIPT_DIR/methods.json.gz"
+curl -Lk "$BASE/jul-28-datasets.json.gz"              -o "$SCRIPT_DIR/datasets.json.gz"
+curl -Lk "$BASE/jul-28-evaluation-tables.json.gz"     -o "$SCRIPT_DIR/evaluations.json.gz"
 
-echo "Extracting files..."
-gunzip -f data/*.gz
+echo "Extracting gz files..."
+gunzip -f "$SCRIPT_DIR"/*.gz
 
+echo "Generating tasks.json from evaluation tables..."
+python3 -c "
+import json, sys
+with open('$SCRIPT_DIR/evaluations.json') as f:
+    data = json.load(f)
+seen, tasks = set(), []
+for item in data:
+    name = item.get('task', '')
+    if name and name not in seen:
+        seen.add(name)
+        tasks.append({
+            'id': name,
+            'name': name,
+            'area': ', '.join(item.get('categories', [])),
+            'description': (item.get('description') or '')[:1000],
+        })
+with open('$SCRIPT_DIR/tasks.json', 'w') as f:
+    json.dump(tasks, f, indent=2)
+print(f'Generated {len(tasks)} tasks')
+"
+
+echo ""
 echo "Done:"
-ls -lh data/*.json
+ls -lh "$SCRIPT_DIR"/*.json
