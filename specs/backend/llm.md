@@ -21,12 +21,19 @@ LLM and workflow logic live in `library/` because they are **reusable building b
 ```
 library/
 ├── __init__.py
-├── parsers.py              # JSON data parsing (existing)
+├── parsers.py              # JSON data parsing
+├── generator.py            # Context serialization (build_context)
 ├── llm/                    # LangChain-based LLM abstraction
 │   ├── __init__.py         # Re-exports: get_chat_model, get_embeddings, generate
-│   ├── providers.py        # Provider factory functions
-│   ├── chat.py             # Chat model wrapper (invoke, generate with prompt)
-│   └── embeddings.py       # Embedding model wrapper (embed_text, embed_batch)
+│   ├── chat.py             # Chat model wrapper (generate with prompt)
+│   ├── embeddings.py       # Embedding wrapper (embed_text, embed_batch)
+│   └── providers/          # Provider registry — one module per provider
+│       ├── __init__.py     # Re-exports: get_chat_model, get_embeddings
+│       ├── registry.py     # Provider dispatch (resolves name → module)
+│       ├── openai.py       # OpenAI (ChatOpenAI, OpenAIEmbeddings)
+│       ├── google.py       # Google Gemini (ChatGoogleGenerativeAI)
+│       ├── ollama.py       # Ollama local (ChatOllama, OllamaEmbeddings)
+│       └── qwen.py         # Qwen via OpenAI-compatible API
 └── graph/                  # LangGraph workflow definitions
     ├── __init__.py         # Re-exports: run_rag_pipeline
     └── rag_pipeline.py     # RAG pipeline as a LangGraph StateGraph
@@ -81,83 +88,103 @@ class Settings(BaseSettings):
 
 ---
 
-## `library/llm/providers.py` — Provider Factory
+## `library/llm/providers/` — Provider Registry Package
 
-Creates LangChain model instances based on config. This is the **only place** that knows about provider-specific classes.
+Each provider lives in its own module. A registry dispatches to the correct module based on config. This is the **only place** that knows about provider-specific classes.
+
+### Adding a New Provider
+
+1. Create `providers/<name>.py` with `get_chat_model(settings)` and `get_embeddings(settings)`
+2. Register it in `registry.py`'s `_PROVIDERS` dict
+3. No changes needed elsewhere
+
+### `providers/registry.py` — Dispatch
 
 ```python
 """
-Provider factory — returns LangChain model instances based on config.
+Provider registry — resolves provider name to module and creates model instances.
 """
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from graphrag_service.core.config import get_settings
+from graphrag_service.core.config import Settings, get_settings
+
+from . import google, ollama, openai, qwen
+
+_PROVIDERS: dict[str, object] = {
+    "openai": openai,
+    "google": google,
+    "ollama": ollama,
+    "qwen": qwen,
+}
 
 
 def get_chat_model() -> BaseChatModel:
     """Create a chat model instance based on LLM_PROVIDER config."""
     settings = get_settings()
     provider = settings.LLM_PROVIDER.lower()
-    model = settings.LLM_MODEL
-
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=settings.OPENAI_API_KEY, temperature=0.2)
-
-    if provider == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model, google_api_key=settings.GOOGLE_API_KEY)
-
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=model, base_url=settings.OLLAMA_BASE_URL)
-
-    if provider == "qwen":
-        from langchain_openai import ChatOpenAI
-        # Qwen uses OpenAI-compatible API
-        return ChatOpenAI(
-            model=model,
-            api_key=settings.OPENAI_API_KEY,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    module = _PROVIDERS.get(provider)
+    if module is None:
+        raise ValueError(
+            f"Unsupported LLM provider: '{provider}'. "
+            f"Available: {', '.join(_PROVIDERS)}"
         )
-
-    raise ValueError(f"Unsupported LLM provider: {provider}")
+    return module.get_chat_model(settings)
 
 
 def get_embeddings() -> Embeddings:
     """Create an embeddings instance based on EMBEDDING_PROVIDER config."""
     settings = get_settings()
     provider = settings.EMBEDDING_PROVIDER.lower()
-    model = settings.EMBEDDING_MODEL
-
-    if provider == "openai":
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(
-            model=model,
-            api_key=settings.OPENAI_API_KEY,
-            dimensions=settings.EMBEDDING_DIM,
+    module = _PROVIDERS.get(provider)
+    if module is None:
+        raise ValueError(
+            f"Unsupported embedding provider: '{provider}'. "
+            f"Available: {', '.join(_PROVIDERS)}"
         )
+    return module.get_embeddings(settings)
+```
 
-    if provider == "google":
-        from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        return GoogleGenerativeAIEmbeddings(
-            model=model,
-            google_api_key=settings.GOOGLE_API_KEY,
-        )
+### `providers/openai.py` — Example Provider Module
 
-    if provider == "ollama":
-        from langchain_ollama import OllamaEmbeddings
-        return OllamaEmbeddings(model=model, base_url=settings.OLLAMA_BASE_URL)
+```python
+"""OpenAI provider — ChatOpenAI and OpenAIEmbeddings."""
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
 
-    raise ValueError(f"Unsupported embedding provider: {provider}")
+from graphrag_service.core.config import Settings
+
+
+def get_chat_model(settings: Settings) -> BaseChatModel:
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=settings.LLM_MODEL, api_key=settings.OPENAI_API_KEY)
+
+
+def get_embeddings(settings: Settings) -> Embeddings:
+    from langchain_openai import OpenAIEmbeddings
+    return OpenAIEmbeddings(
+        model=settings.EMBEDDING_MODEL,
+        api_key=settings.OPENAI_API_KEY,
+        dimensions=settings.EMBEDDING_DIM,
+    )
+```
+
+Other provider modules follow the same pattern: `google.py`, `ollama.py`, `qwen.py`. Each receives the full `Settings` object and can use provider-specific fields (e.g., `GOOGLE_API_KEY`, `OLLAMA_BASE_URL`).
+
+### `providers/__init__.py` — Re-exports
+
+```python
+from .registry import get_chat_model, get_embeddings
+
+__all__ = ["get_chat_model", "get_embeddings"]
 ```
 
 **Rules:**
-- Lazy imports — provider packages are only imported when selected
-- If a provider is not installed, the import fails at runtime with a clear error
-- Config is read via `get_settings()`, never hardcoded
-- New providers are added by adding an `if` branch here — no changes elsewhere
+- Lazy imports — provider SDK packages are only imported inside the provider module when selected
+- If a provider package is not installed, the import fails at runtime with a clear error
+- Config is read via `get_settings()` in the registry, then passed to each provider module
+- Each provider module receives `Settings` and can customize model creation with provider-specific settings
+- New providers require only a new module file + one dict entry in the registry
 
 ---
 
@@ -282,7 +309,7 @@ The RAG pipeline is modeled as a **LangGraph StateGraph** for composability, obs
 """
 RAG pipeline as a LangGraph StateGraph.
 """
-from typing import TypedDict
+from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, StateGraph
 
@@ -296,42 +323,50 @@ class RAGState(TypedDict):
     question: str
     query_vector: list[float]
     seed_nodes: list[dict]
-    subgraph: dict          # {nodes, edges, cypher_used}
+    subgraph: dict          # {seed_nodes, nodes, edges, cypher_used}
     context: str
     answer: str
 
 
 def build_rag_graph(
-    embed_fn,
-    search_fn,
-    traverse_fn,
-    build_context_fn,
-    generate_fn,
+    embed_fn: Callable[[str], list[float]],
+    search_fn: Callable[[list[float], int], list[Any]],
+    traverse_fn: Callable[[list[str]], tuple[dict, list]],
+    build_context_fn: Callable[[list, list], str],
+    generate_fn: Callable[[str, str], str],
+    top_k: int = 5,
 ) -> StateGraph:
     """Build the RAG pipeline graph.
 
     Each function argument is injected by the caller (usecase layer),
     keeping this graph definition free of DB or provider dependencies.
-
-    Args:
-        embed_fn: (question: str) -> list[float]
-        search_fn: (vector: list[float]) -> list[dict]
-        traverse_fn: (node_ids: list[str]) -> dict
-        build_context_fn: (seed_nodes, edges) -> str
-        generate_fn: (question: str, context: str) -> str
     """
     def embed_step(state: RAGState) -> dict:
         vector = embed_fn(state["question"])
         return {"query_vector": vector}
 
     def search_step(state: RAGState) -> dict:
-        seeds = search_fn(state["query_vector"])
+        results = search_fn(state["query_vector"], top_k)
+        seeds = [
+            {
+                "id": r.id, "label": r.label, "name": r.name,
+                "score": r.score, "properties": r.properties,
+            }
+            for r in results
+        ]
         return {"seed_nodes": seeds}
 
     def traverse_step(state: RAGState) -> dict:
         ids = [s["id"] for s in state["seed_nodes"]]
-        subgraph = traverse_fn(ids)
-        return {"subgraph": subgraph}
+        nodes_dict, edges_list = traverse_fn(ids)
+        return {
+            "subgraph": {
+                "seed_nodes": state["seed_nodes"],
+                "nodes": list(nodes_dict.values()),
+                "edges": edges_list,
+                "cypher_used": "neomodel VectorFilter + 2-hop traversal",
+            }
+        }
 
     def context_step(state: RAGState) -> dict:
         context = build_context_fn(
@@ -363,14 +398,17 @@ def build_rag_graph(
 
 def run_rag_pipeline(
     question: str,
-    embed_fn,
-    search_fn,
-    traverse_fn,
-    build_context_fn,
-    generate_fn,
+    embed_fn: Callable[[str], list[float]],
+    search_fn: Callable[[list[float], int], list[Any]],
+    traverse_fn: Callable[[list[str]], tuple[dict, list]],
+    build_context_fn: Callable[[list, list], str],
+    generate_fn: Callable[[str, str], str],
+    top_k: int = 5,
 ) -> RAGState:
     """Build and run the RAG pipeline, returning the final state."""
-    graph = build_rag_graph(embed_fn, search_fn, traverse_fn, build_context_fn, generate_fn)
+    graph = build_rag_graph(
+        embed_fn, search_fn, traverse_fn, build_context_fn, generate_fn, top_k
+    )
     app = graph.compile()
     result = app.invoke({"question": question})
     return result
@@ -401,31 +439,33 @@ __all__ = ["RAGState", "build_rag_graph", "run_rag_pipeline"]
 
 ### RAG Module (`modules/rag/`)
 
-The RAG module's **service** orchestrates library calls, and the **usecase** wires everything together with repositories.
+The RAG module's **service** orchestrates library calls (static methods, no state), and the **usecase** wires everything together with repositories via LangGraph.
 
 ```python
 # modules/rag/services.py — orchestrates library calls (NO DB access)
-from graphrag_service.library.llm import embed_text, embed_batch, generate
-from graphrag_service.library.llm.chat import SYSTEM_PROMPT
+from graphrag_service.library.generator import build_context
+from graphrag_service.library.llm import embed_text, generate
 
 
 class RAGService:
-    """Orchestrates LLM library calls for the RAG pipeline."""
+    """Orchestrates LLM library calls for the RAG pipeline. No DB access."""
 
-    def embed_question(self, question: str) -> list[float]:
+    @staticmethod
+    def embed_question(question: str) -> list[float]:
         return embed_text(question)
 
-    def generate_answer(self, question: str, context: str) -> str:
+    @staticmethod
+    def generate_answer(question: str, context: str) -> str:
         return generate(question, context)
 
-    def build_context(self, seed_nodes: list, edges: list) -> str:
-        # Uses library/generator.py build_context (existing)
-        from graphrag_service.library.generator import build_context
+    @staticmethod
+    def build_context(seed_nodes: list, edges: list) -> str:
         return build_context(seed_nodes, edges)
 ```
 
 ```python
 # modules/rag/usecase.py — orchestrates service + repository
+from graphrag_service.core.config import get_settings
 from graphrag_service.library.graph import run_rag_pipeline
 
 from .repositories import VectorSearchRepository, TraversalRepository
@@ -433,15 +473,20 @@ from .services import RAGService
 
 
 class RAGUseCase:
-    """Orchestrates the full RAG pipeline via LangGraph."""
+    """Orchestrates the full RAG pipeline — wires service + repository into LangGraph."""
 
-    def __init__(self, client):
+    def __init__(self, client: Neo4jClient):
         self.service = RAGService()
         self.vector_repo = VectorSearchRepository(client)
         self.traversal_repo = TraversalRepository(client)
 
-    def query(self, question: str) -> tuple[str, dict]:
-        """Run the RAG pipeline using LangGraph."""
+    def query(self, question: str) -> dict:
+        """Run the RAG pipeline using LangGraph.
+
+        Returns the full pipeline state dict with keys:
+            question, query_vector, seed_nodes, subgraph, context, answer
+        """
+        settings = get_settings()
         result = run_rag_pipeline(
             question=question,
             embed_fn=self.service.embed_question,
@@ -449,8 +494,9 @@ class RAGUseCase:
             traverse_fn=self.traversal_repo.traverse,
             build_context_fn=self.service.build_context,
             generate_fn=self.service.generate_answer,
+            top_k=settings.TOP_K_SEED_NODES,
         )
-        return result["answer"], result["subgraph"]
+        return result
 ```
 
 ### Graph Module (`modules/graph/`)
@@ -474,37 +520,24 @@ class GraphService:
 
 ## Dependencies (`pyproject.toml`)
 
+Managed via `poetry add` — never edit `pyproject.toml` directly.
+
 ```toml
 [tool.poetry.dependencies]
-# LangChain core
-langchain-core = "^0.3"
-langgraph = "^0.3"
+# AI / ML (LangChain provider-agnostic)
+langchain-core = "^1.2.17"
+langgraph = "^1.0.10"
+langchain-openai = "^1.1.10"       # OpenAI (default provider)
 
-# Provider packages (install only what you use)
-langchain-openai = "^0.3"           # OpenAI (default)
-langchain-google-genai = "^2.1"     # Google Gemini (optional)
-langchain-ollama = "^0.3"           # Ollama local (optional)
+# Optional provider packages (install only what you use)
+# langchain-google-genai = "^2.1"  # Google Gemini
+# langchain-ollama = "^0.3"        # Ollama local
 ```
 
 **Rules:**
 - `langchain-core` and `langgraph` are always required
-- Provider packages are optional — install only the ones you need
-- The `openai` direct dependency can be removed once LangChain handles all LLM calls
+- `langchain-openai` is installed by default (default provider)
+- Other provider packages are optional — install only the ones you need
+- The direct `openai` SDK dependency has been removed — LangChain handles all LLM calls
 - Keep `neomodel` for DB operations — LangChain is for LLM only, not for Neo4j queries
-
----
-
-## Migration Path
-
-The current codebase uses `openai` SDK directly. The migration to LangChain/LangGraph:
-
-| Current | After Migration |
-|---------|----------------|
-| `openai.OpenAI(api_key=...)` in `EmbedderService` | `library/llm/embeddings.py` via LangChain |
-| `openai.OpenAI(api_key=...)` in `GeneratorService` | `library/llm/chat.py` via LangChain |
-| `OPENAI_API_KEY`, `EMBEDDING_MODEL`, `LLM_MODEL` | Add `LLM_PROVIDER`, `EMBEDDING_PROVIDER` |
-| Sequential RAG in `RAGService.query()` | `library/graph/rag_pipeline.py` via LangGraph |
-| `EmbedderService` in `modules/rag/` | `library/llm/embeddings.py` (shared) |
-| `GeneratorService` in `modules/rag/` | `library/llm/chat.py` (shared) |
-
-**Backwards compatible**: Existing `OPENAI_API_KEY` + `LLM_MODEL` still work — defaults are `LLM_PROVIDER=openai`.
+- **Backwards compatible**: Existing `OPENAI_API_KEY` + `LLM_MODEL` still work — defaults are `LLM_PROVIDER=openai`
