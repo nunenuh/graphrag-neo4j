@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     # Provider API Keys
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API key")
     GOOGLE_API_KEY: str = Field(default="", description="Google API key")
+    QWEN_API_KEY: str = Field(default="", description="Qwen / DashScope API key")
+    QWEN_BASE_URL: str = Field(default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1", description="Qwen / DashScope base URL")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", description="Ollama base URL")
 
     # RAG Settings
