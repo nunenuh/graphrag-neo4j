@@ -8,7 +8,6 @@ Each model inherits from BaseNode (uid + created_at) and declares:
 """
 
 from neomodel import ArrayProperty, FloatProperty, RelationshipFrom, RelationshipTo, StringProperty
-from neomodel.properties import VectorIndex
 
 from .base import BaseNode
 from .relationships import EvaluatedOnRel, UsedForRel
@@ -21,10 +20,7 @@ class Paper(BaseNode):
     abstract = StringProperty()
     year = StringProperty()
     url = StringProperty()
-    embedding = ArrayProperty(
-        base_property=FloatProperty(),
-        vector_index=VectorIndex(dimensions=1536, similarity_function="cosine"),
-    )
+    embedding = ArrayProperty(base_property=FloatProperty())
 
 
 class Method(BaseNode):
@@ -33,10 +29,7 @@ class Method(BaseNode):
     name = StringProperty(required=True, index=True)
     full_name = StringProperty()
     description = StringProperty()
-    embedding = ArrayProperty(
-        base_property=FloatProperty(),
-        vector_index=VectorIndex(dimensions=1536, similarity_function="cosine"),
-    )
+    embedding = ArrayProperty(base_property=FloatProperty())
 
     # Method -[:EVALUATED_ON]-> Dataset
     evaluated_on = RelationshipTo("Dataset", "EVALUATED_ON", model=EvaluatedOnRel)
@@ -48,10 +41,7 @@ class Task(BaseNode):
     name = StringProperty(required=True, index=True)
     area = StringProperty()
     description = StringProperty()
-    embedding = ArrayProperty(
-        base_property=FloatProperty(),
-        vector_index=VectorIndex(dimensions=1536, similarity_function="cosine"),
-    )
+    embedding = ArrayProperty(base_property=FloatProperty())
 
     # Task <-[:USED_FOR]- Dataset
     datasets = RelationshipFrom("Dataset", "USED_FOR", model=UsedForRel)
@@ -63,10 +53,7 @@ class Dataset(BaseNode):
     name = StringProperty(required=True, index=True)
     description = StringProperty()
     modalities = StringProperty()
-    embedding = ArrayProperty(
-        base_property=FloatProperty(),
-        vector_index=VectorIndex(dimensions=1536, similarity_function="cosine"),
-    )
+    embedding = ArrayProperty(base_property=FloatProperty())
 
     # Dataset -[:USED_FOR]-> Task
     used_for = RelationshipTo("Task", "USED_FOR", model=UsedForRel)

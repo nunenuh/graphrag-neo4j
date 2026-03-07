@@ -14,7 +14,6 @@ from neomodel import (
     StructuredRel,
     UniqueIdProperty,
 )
-from neomodel.properties import VectorIndex
 
 
 class BaseNode(StructuredNode):
@@ -42,5 +41,4 @@ __all__ = [
     "UniqueIdProperty",
     "RelationshipTo",
     "RelationshipFrom",
-    "VectorIndex",
 ]

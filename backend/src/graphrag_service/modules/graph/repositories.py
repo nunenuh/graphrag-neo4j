@@ -6,8 +6,10 @@ from typing import List, Tuple
 
 from neomodel import StructuredNode
 
+from graphrag_service.core.config import get_settings
 from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
+from graphrag_service.dbase.neo4j.models import ALL_NODE_MODELS
 
 from graphrag_service.shared.exceptions import RepositoryException
 
@@ -44,9 +46,27 @@ class SchemaRepository:
         self._client = client
 
     def install_schema(self) -> None:
-        """Install all constraints and indexes via neomodel's install_all_labels."""
+        """Install constraints via neomodel, then create vector indexes via Cypher."""
         self._client.install_labels()
-        logger.info("Schema installed via neomodel")
+        logger.info("Constraints and range indexes installed via neomodel")
+
+        settings = get_settings()
+        dim = settings.EMBEDDING_DIM
+        for model in ALL_NODE_MODELS:
+            label = model.__label__
+            index_name = f"vector_index_{label}_embedding"
+            cypher = (
+                f"CREATE VECTOR INDEX {index_name} IF NOT EXISTS "
+                f"FOR (n:{label}) ON (n.embedding) "
+                f"OPTIONS {{indexConfig: {{"
+                f"  `vector.dimensions`: {dim},"
+                f"  `vector.similarity_function`: 'cosine'"
+                f"}}}}"
+            )
+            self._client.run_query(cypher)
+            logger.info(f"Vector index created: {index_name} (dim={dim})")
+
+        logger.info("Schema installation complete")
 
     def get_labels(self) -> List[str]:
         try:
