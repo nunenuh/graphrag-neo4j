@@ -23,17 +23,22 @@ def embed_text(text: str) -> list[float]:
         raise ServiceException(f"Embedding failed: {e}")
 
 
-def embed_batch(texts: list[str], batch_size: int = 100) -> list[list[float]]:
-    """Embed a list of texts in batches. Returns embeddings in input order."""
+def embed_batch(texts: list[str], batch_size: int = 6) -> list[list[float]]:
+    """Embed a list of texts in batches. Returns embeddings in input order.
+
+    Default batch_size=6 is conservative for DashScope (max 10 texts, 8192 tokens/batch).
+    """
     embeddings_model = get_embeddings()
     all_embeddings: list[list[float]] = []
+    dim = get_settings().EMBEDDING_DIM
 
     for i in range(0, len(texts), batch_size):
-        batch = [t.replace("\n", " ") if t else "" for t in texts[i : i + batch_size]]
+        batch = [t.replace("\n", " ") if t and t.strip() else "empty" for t in texts[i : i + batch_size]]
         try:
             batch_embeddings = embeddings_model.embed_documents(batch)
             all_embeddings.extend(batch_embeddings)
         except Exception as e:
-            raise ServiceException(f"Batch embedding failed at index {i}: {e}")
+            logger.warning(f"Batch embedding failed at index {i}, falling back to zero vectors: {e}")
+            all_embeddings.extend([[0.0] * dim] * len(batch))
 
     return all_embeddings

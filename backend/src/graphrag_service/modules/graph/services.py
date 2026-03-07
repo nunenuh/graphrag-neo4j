@@ -32,7 +32,8 @@ class GraphService:
         path = Path(settings.DATA_DIR)
         if path.is_absolute():
             return path
-        return Path(__file__).parent.parent.parent.parent.parent / settings.DATA_DIR
+        # __file__ is modules/graph/services.py → go up 6 levels to project root
+        return Path(__file__).parent.parent.parent.parent.parent.parent / settings.DATA_DIR
 
     def load_papers(self) -> Iterator[dict]:
         """Load and parse papers using library functions."""
@@ -42,18 +43,21 @@ class GraphService:
 
     def load_methods(self) -> Iterator[dict]:
         """Load and parse methods using library functions."""
+        settings = get_settings()
         data = load_json(self.data_dir() / "methods.json")
-        return iter_methods(data)
+        return iter_methods(data, max_items=settings.MAX_METHODS)
 
     def load_tasks(self) -> Iterator[dict]:
         """Load and parse tasks using library functions."""
+        settings = get_settings()
         data = load_json(self.data_dir() / "tasks.json")
-        return iter_tasks(data)
+        return iter_tasks(data, max_items=settings.MAX_TASKS)
 
     def load_datasets(self) -> Iterator[dict]:
         """Load and parse datasets using library functions."""
+        settings = get_settings()
         data = load_json(self.data_dir() / "datasets.json")
-        return iter_datasets(data)
+        return iter_datasets(data, max_items=settings.MAX_DATASETS)
 
     def load_evaluations(self) -> list:
         """Load evaluation data from JSON."""

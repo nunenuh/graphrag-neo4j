@@ -80,7 +80,10 @@ class Settings(BaseSettings):
 
     # Data Settings
     DATA_DIR: str = Field(default="data", description="Data directory path")
-    MAX_PAPERS: int = Field(default=5000, description="Max papers to ingest")
+    MAX_PAPERS: int = Field(default=5000, description="Max papers to ingest (0 = all)")
+    MAX_METHODS: int = Field(default=0, description="Max methods to ingest (0 = all)")
+    MAX_TASKS: int = Field(default=0, description="Max tasks to ingest (0 = all)")
+    MAX_DATASETS: int = Field(default=0, description="Max datasets to ingest (0 = all)")
     INGEST_BATCH_SIZE: int = Field(default=50, description="Ingestion batch size")
 
     # Environment alias
