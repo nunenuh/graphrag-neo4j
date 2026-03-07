@@ -169,3 +169,107 @@ class GraphExploreRepository:
             )
 
         return list(nodes.values()), edges
+
+    def get_stats(self) -> dict:
+        """Get node/edge counts per label."""
+        counts: dict[str, int] = {}
+        try:
+            for model in ALL_NODE_MODELS:
+                label = model.__label__
+                rows = self._client.run_query(
+                    f"MATCH (n:{label}) RETURN count(n) AS c"
+                )
+                counts[label] = rows[0]["c"] if rows else 0
+        except Exception as e:
+            raise RepositoryException(f"Failed to get node counts: {e}")
+
+        edge_counts: dict[str, int] = {}
+        try:
+            rel_rows = self._client.run_query(
+                "CALL db.relationshipTypes() YIELD relationshipType AS t "
+                "RETURN t"
+            )
+            for row in rel_rows:
+                t = row["t"]
+                cnt_rows = self._client.run_query(
+                    f"MATCH ()-[r:{t}]->() RETURN count(r) AS c"
+                )
+                edge_counts[t] = cnt_rows[0]["c"] if cnt_rows else 0
+        except Exception as e:
+            raise RepositoryException(f"Failed to get edge counts: {e}")
+
+        total_nodes = sum(counts.values())
+        total_edges = sum(edge_counts.values())
+
+        return {
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+            "node_counts": counts,
+            "edge_counts": edge_counts,
+        }
+
+    def get_node_by_uid(self, uid: str) -> dict | None:
+        """Get a single node by uid with its label and relationships."""
+        try:
+            rows = self._client.run_query(
+                "MATCH (n {uid: $uid}) "
+                "OPTIONAL MATCH (n)-[r]->(m) "
+                "OPTIONAL MATCH (p)-[r2]->(n) "
+                "RETURN n, labels(n)[0] AS label, "
+                "collect(DISTINCT {to: m.uid, type: type(r)}) AS outgoing, "
+                "collect(DISTINCT {from: p.uid, type: type(r2)}) AS incoming",
+                {"uid": uid},
+            )
+        except Exception as e:
+            raise RepositoryException(f"Failed to get node {uid}: {e}")
+
+        if not rows:
+            return None
+
+        row = rows[0]
+        node = row["n"]
+        if node is None:
+            return None
+
+        props = {k: v for k, v in dict(node).items() if k != "embedding"}
+        outgoing = [e for e in row["outgoing"] if e.get("to") and e.get("type")]
+        incoming = [e for e in row["incoming"] if e.get("from") and e.get("type")]
+
+        return {
+            "uid": props.get("uid", uid),
+            "label": row["label"],
+            "properties": props,
+            "outgoing": outgoing,
+            "incoming": incoming,
+        }
+
+    def search_nodes(
+        self, query: str, label: str | None = None, limit: int = 20
+    ) -> list[dict]:
+        """Search nodes by name (case-insensitive contains)."""
+        if label:
+            cypher = (
+                f"MATCH (n:{label}) WHERE toLower(n.name) CONTAINS toLower($q) "
+                "RETURN n, labels(n)[0] AS label LIMIT $limit"
+            )
+        else:
+            cypher = (
+                "MATCH (n) WHERE n.name IS NOT NULL AND toLower(n.name) CONTAINS toLower($q) "
+                "RETURN n, labels(n)[0] AS label LIMIT $limit"
+            )
+
+        try:
+            rows = self._client.run_query(cypher, {"q": query, "limit": limit})
+        except Exception as e:
+            raise RepositoryException(f"Node search failed: {e}")
+
+        results = []
+        for row in rows:
+            props = {k: v for k, v in dict(row["n"]).items() if k != "embedding"}
+            results.append({
+                "uid": props.get("uid", ""),
+                "label": row["label"],
+                "name": props.get("name", ""),
+                "properties": props,
+            })
+        return results

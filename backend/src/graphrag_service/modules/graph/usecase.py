@@ -48,6 +48,18 @@ class GraphUseCase:
         """Explore graph sample."""
         return self.explore_repo.explore(limit=limit)
 
+    def get_stats(self) -> dict:
+        """Get node/edge counts."""
+        return self.explore_repo.get_stats()
+
+    def get_node(self, uid: str) -> dict | None:
+        """Get a single node by uid."""
+        return self.explore_repo.get_node_by_uid(uid)
+
+    def search_nodes(self, query: str, label: str | None = None, limit: int = 20) -> list[dict]:
+        """Search nodes by name."""
+        return self.explore_repo.search_nodes(query, label=label, limit=limit)
+
     def ingest_nodes(self) -> None:
         """Ingest all entities: service parses data + embeds, repository writes to DB."""
         settings = get_settings()
