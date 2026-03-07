@@ -15,7 +15,8 @@ specs/
 │   ├── python-conventions.md        ← PEP 8, type hints, naming, imports, error handling
 │   ├── python-module-structure.md   ← Module layering (Handler → UseCase → Service → Repo)
 │   ├── testing.md                   ← Test structure: units / integrations / e2e mock / BDD
-│   └── security.md                  ← X-API-Key authentication, CORS
+│   ├── security.md                  ← X-API-Key authentication, CORS
+│   └── git-workflow.md              ← Git branch, commit, PR workflow (issue-driven)
 ├── backend/
 │   ├── neo4j-models.md  ← neomodel OGM: BaseNode, StructuredNode, VectorIndex, repositories
 │   ├── graph.md         ← Neo4j schema, neomodel models, constraints, vector indexes
@@ -49,6 +50,7 @@ specs/
 | Module layering | `conventions/python-module-structure.md` | `graphrag_service/modules/graph/`, `graphrag_service/modules/rag/` |
 | Tests | `conventions/testing.md` | `tests/unit/`, `tests/integration/`, `tests/e2e/*/bdd/` |
 | Security (X-API-Key) | `conventions/security.md` | `graphrag_service/core/auth.py` |
+| Git workflow | `conventions/git-workflow.md` | `.git/`, PR templates |
 | **System** | | |
 | System-wide | `system.md` | `env.example`, `docker/docker-compose.dev.yml`, `graphrag_service/main.py` |
 | **Backend** | | |
