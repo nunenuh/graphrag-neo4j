@@ -9,12 +9,12 @@ Security guidelines for `graphrag-neo4j` backend using API key authentication.
 The API uses **X-API-Key header authentication** — a simple, stateless mechanism suitable for portfolio demos and internal services. Every protected endpoint verifies the key before processing the request.
 
 ```
-Client → Request with X-API-Key header
-                ↓
-         verify_api_key dependency
-                ↓
-     ✅ Valid key → proceed to handler
-     ❌ Invalid/missing key → 401 Unauthorized
+Client -> Request with X-API-Key header
+                |
+         get_api_key dependency
+                |
+     Valid key -> proceed to handler
+     Invalid/missing key -> 403 Forbidden
 ```
 
 ---
@@ -25,14 +25,13 @@ The API key **must never be hardcoded**. Store it in `.env`:
 
 ```bash
 # .env
-API_KEY=your-secret-key-here   # Generate: python -c "import secrets; print(secrets.token_urlsafe(32))"
-API_KEY_ENABLED=true           # Set to false to disable auth (local dev without key)
+APP_X_API_KEY=your-secret-key-here   # Generate: python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Add to `core/config.py`:
+The settings class in `core/config.py`:
 
 ```python
-# core/config.py
+# graphrag_service/core/config.py
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -40,8 +39,7 @@ class Settings(BaseSettings):
     neo4j_user: str
     neo4j_password: str
     openai_api_key: str
-    api_key: str = ""                  # Empty = auth disabled
-    api_key_enabled: bool = True       # True by default (secure by default)
+    APP_X_API_KEY: str = ""            # Empty = no key set (all requests pass)
     app_env: str = "development"
     log_level: str = "INFO"
     allowed_origins: list[str] = ["http://localhost:5173"]
@@ -49,7 +47,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
 
-settings = Settings()
+def get_settings() -> Settings:
+    return Settings()
 ```
 
 **Generating a secure key:**
@@ -62,68 +61,49 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ## The Security Dependency
 
-Create `core/security.py`:
+Create `core/auth.py`:
 
 ```python
 """
-core/security.py
+graphrag_service/core/auth.py
 
 FastAPI dependency for X-API-Key authentication.
 Attach to routes or routers that require authentication.
 """
-import logging
-import secrets
+from fastapi import HTTPException, Security
+from fastapi.security.api_key import APIKeyHeader
+from starlette.status import HTTP_403_FORBIDDEN
+from .config import get_settings
 
-from fastapi import Header, HTTPException, status
-from fastapi.security import APIKeyHeader
-
-from core.config import settings
-
-logger = logging.getLogger(__name__)
-
-# OpenAPI UI shows this as the auth field name
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-def verify_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+async def get_api_key(api_key_header: str = Security(api_key_header)):
     """
     FastAPI dependency: verify the X-API-Key header.
 
-    Skips verification if:
-    - api_key_enabled is False (disabled in config)
-    - api_key is empty (not configured)
+    Always validates when APP_X_API_KEY is set in settings.
+    There is no toggle to disable auth — if the key is configured,
+    it is enforced.
 
     Raises:
-        HTTPException 401: If key is missing or invalid.
+        HTTPException 403: If key is missing or invalid.
 
     Usage:
-        @router.post("/query", dependencies=[Depends(verify_api_key)])
-        @router.get("/graph/explore", dependencies=[Depends(verify_api_key)])
+        @router.post("/query", dependencies=[Depends(get_api_key)])
+        @router.get("/graph/explore", dependencies=[Depends(get_api_key)])
     """
-    # Bypass if auth is disabled or key not configured
-    if not settings.api_key_enabled or not settings.api_key:
-        return
-
-    # Missing key
-    if not x_api_key:
-        logger.warning("Request missing X-API-Key header")
+    if not api_key_header:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide X-API-Key header.",
-            headers={"WWW-Authenticate": "ApiKey"},
+            status_code=HTTP_403_FORBIDDEN,
+            detail="No API key provided",
         )
-
-    # Compare using secrets.compare_digest — prevents timing attacks
-    provided = x_api_key.encode("utf-8")
-    expected = settings.api_key.encode("utf-8")
-
-    if not secrets.compare_digest(provided, expected):
-        logger.warning("Invalid X-API-Key attempt", extra={"key_prefix": x_api_key[:4]})
+    if api_key_header != get_settings().APP_X_API_KEY:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key.",
-            headers={"WWW-Authenticate": "ApiKey"},
+            status_code=HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
         )
+    return api_key_header
 ```
 
 ---
@@ -133,16 +113,16 @@ def verify_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key
 ### Option A: Per-router (recommended — protects all routes at once)
 
 ```python
-# router.py
+# graphrag_service/router.py
 from fastapi import APIRouter, Depends
-from core.security import verify_api_key
+from graphrag_service.core.auth import get_api_key
 
 # All routes in this router require authentication
-router = APIRouter(dependencies=[Depends(verify_api_key)])
+router = APIRouter(dependencies=[Depends(get_api_key)])
 
 @router.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest) -> QueryResponse:
-    ...  # verify_api_key already called before this runs
+    ...  # get_api_key already called before this runs
 
 @router.get("/graph/explore", response_model=ExploreResponse)
 async def graph_explore(limit: int = Query(default=50)) -> ExploreResponse:
@@ -152,7 +132,7 @@ async def graph_explore(limit: int = Query(default=50)) -> ExploreResponse:
 ### Option B: Per-endpoint (fine-grained control)
 
 ```python
-@router.post("/query", response_model=QueryResponse, dependencies=[Depends(verify_api_key)])
+@router.post("/query", response_model=QueryResponse, dependencies=[Depends(get_api_key)])
 async def query(request: QueryRequest) -> QueryResponse:
     ...
 
@@ -165,36 +145,39 @@ async def health() -> HealthResponse:
 ### Option C: Exempt specific routes from a protected router
 
 ```python
-# main.py — mount a public router separately
-from api import routes_public, routes_protected
+# graphrag_service/main.py — mount a public router separately
+from graphrag_service.router import router as protected_router
+from graphrag_service.modules.health.apiv1.handler import router as health_router
 
-app.include_router(routes_public.router, prefix="/api")           # No auth
+app.include_router(health_router, prefix="/api")           # No auth
 app.include_router(
-    routes_protected.router,
+    protected_router,
     prefix="/api",
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(get_api_key)],
 )
 ```
 
 **Recommendation for graphrag-neo4j:**
-- `/api/health` → **public** (monitoring tools need this without auth)
-- `/api/query` → **protected**
-- `/api/graph/explore` → **protected**
-- `/api/graph/schema` → **protected**
+- `/api/health` -> **public** (monitoring tools need this without auth)
+- `/api/query` -> **protected**
+- `/api/graph/explore` -> **protected**
+- `/api/graph/schema` -> **protected**
 
 ---
 
 ## `main.py` with Split Routers
 
 ```python
-# main.py
+# graphrag_service/main.py
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from router import router as protected_router
-from modules.health.apiv1.handler import router as health_router
-from core.config import settings
-from core.security import verify_api_key
+from graphrag_service.router import router as protected_router
+from graphrag_service.modules.health.apiv1.handler import router as health_router
+from graphrag_service.core.config import get_settings
+from graphrag_service.core.auth import get_api_key
+
+settings = get_settings()
 
 app = FastAPI(title="graphrag-neo4j", version="0.1.0")
 
@@ -213,7 +196,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(
     protected_router,
     prefix="/api",
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(get_api_key)],
 )
 ```
 
@@ -223,7 +206,7 @@ app.include_router(
 
 ```typescript
 // frontend/src/lib/api.ts
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8005";
 const API_KEY = import.meta.env.VITE_API_KEY ?? "";  // Set in frontend/.env
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -258,31 +241,17 @@ For a portfolio demo, this is acceptable. For production, use a backend-for-fron
 
 | Rule | Detail |
 |------|--------|
-| Never hardcode keys | Always use `.env` → `settings.api_key` |
+| Never hardcode keys | Always use `.env` -> `get_settings().APP_X_API_KEY` |
 | Never log the full key | Log only first 4 chars for debugging: `key[:4]` |
-| Use `secrets.compare_digest` | Prevents timing attacks on string comparison |
 | Rotate on exposure | If key is committed to git, rotate immediately |
 | Use `token_urlsafe(32)` | 256-bit entropy — sufficient for API key |
-
-### Timing Attack Prevention
-
-```python
-# ✅ Constant-time comparison — not vulnerable to timing attacks
-if not secrets.compare_digest(provided, expected):
-    raise HTTPException(...)
-
-# ❌ Short-circuit comparison — timing side channel
-if provided != expected:
-    raise HTTPException(...)
-```
 
 ### Error Response Rules
 
 | Scenario | Status | Response Body |
 |----------|--------|--------------|
-| Missing `X-API-Key` | 401 | `{"detail": "Missing API key. Provide X-API-Key header."}` |
-| Wrong key value | 401 | `{"detail": "Invalid API key."}` |
-| Key disabled (`api_key_enabled=false`) | — | Request passes through |
+| Missing `X-API-Key` | 403 | `{"detail": "No API key provided"}` |
+| Wrong key value | 403 | `{"detail": "Invalid API key"}` |
 
 **Never reveal in the error response:**
 - Whether the key exists
@@ -308,7 +277,7 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],   # ← Must include X-API-Key (wildcard covers it)
+    allow_headers=["*"],   # Must include X-API-Key (wildcard covers it)
 )
 ```
 
@@ -332,8 +301,7 @@ TEST_API_KEY = "test-key-for-unit-tests"
 @pytest.fixture(autouse=True)
 def set_test_api_key(monkeypatch):
     """Set test API key in settings for all tests."""
-    monkeypatch.setattr("core.security.settings.api_key", TEST_API_KEY)
-    monkeypatch.setattr("core.security.settings.api_key_enabled", True)
+    monkeypatch.setenv("APP_X_API_KEY", TEST_API_KEY)
 
 @pytest.fixture
 def auth_headers() -> dict:
@@ -342,7 +310,7 @@ def auth_headers() -> dict:
 
 @pytest.fixture
 def no_auth_headers() -> dict:
-    """HTTP headers without API key (for testing 401)."""
+    """HTTP headers without API key (for testing 403)."""
     return {}
 ```
 
@@ -352,14 +320,14 @@ def test_query_with_valid_key_returns_200(auth_headers):
     response = client.post("/api/query", json={"question": "test"}, headers=auth_headers)
     assert response.status_code == 200
 
-def test_query_without_key_returns_401():
+def test_query_without_key_returns_403():
     response = client.post("/api/query", json={"question": "test"})
-    assert response.status_code == 401
-    assert "Missing API key" in response.json()["detail"]
+    assert response.status_code == 403
+    assert "No API key provided" in response.json()["detail"]
 
-def test_query_with_wrong_key_returns_401():
+def test_query_with_wrong_key_returns_403():
     response = client.post("/api/query", json={"question": "test"}, headers={"X-API-Key": "wrong"})
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 def test_health_is_public():
     """Health endpoint requires no auth."""
@@ -375,14 +343,14 @@ def test_health_is_public():
   Scenario: Protected endpoint requires API key
     Given the API is running
     When I send a POST to "/api/query" without an API key
-    Then the response status is 401
-    And the response detail contains "Missing API key"
+    Then the response status is 403
+    And the response detail contains "No API key provided"
 
   Scenario: Valid API key grants access
     Given the API is running
     And I have a valid API key
     When I send a POST to "/api/query" with the API key
-    Then the response status is not 401
+    Then the response status is not 403
 ```
 
 ---
@@ -392,7 +360,7 @@ def test_health_is_public():
 FastAPI auto-documents the security scheme when you use `APIKeyHeader`:
 
 ```python
-from fastapi.security import APIKeyHeader
+from fastapi.security.api_key import APIKeyHeader
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 ```
 
@@ -403,25 +371,24 @@ The Swagger UI at `/docs` will show a lock icon and "Authorize" button where use
 ## Docker Compose Secret Injection
 
 ```yaml
-# docker-compose.yml
+# docker/docker-compose.yml
 services:
   backend:
-    build: ./backend
-    env_file: .env         # API_KEY loaded from here
-    environment:
-      - API_KEY_ENABLED=true
+    build: ../backend
+    env_file: ../.env        # APP_X_API_KEY loaded from here
+    ports:
+      - "8005:8005"
 ```
 
-**Never commit `.env`** with real keys. Only commit `.env.example`:
+**Never commit `.env`** with real keys. Only commit `env.example`:
 
 ```bash
-# .env.example — commit this
+# env.example — commit this
 NEO4J_URI=bolt://neo4j:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=CHANGE_ME
 OPENAI_API_KEY=sk-CHANGE_ME
-API_KEY=CHANGE_ME
-API_KEY_ENABLED=true
+APP_X_API_KEY=CHANGE_ME
 ALLOWED_ORIGINS=http://localhost:5173
 ```
 

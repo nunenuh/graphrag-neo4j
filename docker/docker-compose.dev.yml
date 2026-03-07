@@ -1,0 +1,73 @@
+services:
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: graph-rag-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/password123
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - graphrag-network
+    restart: unless-stopped
+
+  backend:
+    hostname: graphrag-backend-docker-local
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: graph-rag-backend
+    ports:
+      - "8005:8005"
+    env_file:
+      - ../.env
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      APP_DEBUG: "true"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ../backend/src:/app/src
+      - ../data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/api/v1/health/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - graphrag-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: graph-rag-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8005
+    depends_on:
+      - backend
+    networks:
+      - graphrag-network
+    restart: unless-stopped
+
+networks:
+  graphrag-network:
+    driver: bridge
+
+volumes:
+  neo4j_data:

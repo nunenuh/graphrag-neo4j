@@ -1,496 +1,320 @@
 # Backend Spec: RAG Pipeline
 
-Files: `backend/src/library/rag/embedder.py`, `backend/src/library/rag/retriever.py`, `backend/src/library/rag/generator.py`
+Files: `backend/src/graphrag_service/modules/rag/` (services, repositories, usecase)
 
-See also: [[projects/graphrag-neo4j/docs/technical/architecture]] · [[projects/graphrag-neo4j/docs/technical/data-model]]
+LLM abstraction: `backend/src/graphrag_service/library/llm/` (LangChain)
+
+Workflow: `backend/src/graphrag_service/library/graph/rag_pipeline.py` (LangGraph)
+
+See also: [llm.md](llm.md) · [graph.md](graph.md)
 
 ---
 
-## Pipeline Overview
+## Pipeline Overview (LangGraph)
+
+The RAG pipeline is modeled as a **LangGraph StateGraph** with 5 steps:
 
 ```
 question: str
-    │
-    ▼ embedder.py
-query_vector: list[float]  (1536 dims)
-    │
-    ▼ retriever.py — vector search
-seed_nodes: list[SeedNode]  (top-k by cosine similarity)
-    │
-    ▼ retriever.py — graph traversal
-subgraph: {nodes: [...], edges: [...]}
-    │
-    ▼ generator.py — context serialization
-context_text: str  ("YOLO -[APPLIED_ON]-> COCO...")
-    │
-    ▼ generator.py — LLM call
-answer: str  (grounded natural language)
-    │
-    ▼ router.py — response assembly
-QueryResponse (answer + seed_nodes + nodes + edges + cypher_used + latency_ms)
+    |
+    v  [embed]     library.llm.embed_text (LangChain embeddings)
+query_vector: list[float]
+    |
+    v  [search]    VectorSearchRepository.search_all (neomodel VectorFilter)
+seed_nodes: list[dict]
+    |
+    v  [traverse]  TraversalRepository.traverse (raw Cypher 2-hop)
+subgraph: dict  {nodes, edges, cypher_used}
+    |
+    v  [context]   library.generator.build_context (text serialization)
+context: str
+    |
+    v  [generate]  library.llm.generate (LangChain chat model)
+answer: str
+    |
+    v  RAGUseCase.query (orchestration via LangGraph)
+tuple[str, dict]
 ```
+
+The pipeline graph is defined in `library/graph/rag_pipeline.py` and wired by `modules/rag/usecase.py`. See [llm.md](llm.md) for details.
 
 ---
 
-## `library/rag/embedder.py`
+## Dataclasses
+
+Defined in `services.py`:
 
 ```python
-"""
-library/rag/embedder.py
-
-OpenAI text embedding — single text and batch.
-Model: text-embedding-3-small (1536 dimensions)
-"""
-import logging
-import time
-from typing import Union
-
-import openai
-
-from core.config import settings
-
-logger = logging.getLogger(__name__)
-
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMS = 1536
-BATCH_SIZE = 100
-MAX_RETRIES = 3
-RETRY_DELAY = 2.0  # seconds, doubles each retry
-
-
-def embed_text(text: str) -> list[float]:
-    """
-    Embed a single text string.
-
-    Args:
-        text: Text to embed (will be truncated to 8191 tokens by OpenAI)
-
-    Returns:
-        List of 1536 floats (cosine-normalized)
-
-    Raises:
-        openai.APIError: If the API call fails after retries
-    """
-    client = openai.OpenAI(api_key=settings.openai_api_key)
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = client.embeddings.create(
-                input=[text],
-                model=EMBEDDING_MODEL,
-            )
-            return response.data[0].embedding
-        except openai.RateLimitError:
-            wait = RETRY_DELAY * (2 ** attempt)
-            logger.warning(f"Rate limited. Waiting {wait}s (attempt {attempt + 1}/{MAX_RETRIES})")
-            time.sleep(wait)
-        except openai.APIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise
-    raise openai.RateLimitError("Max retries exceeded")
-
-
-def batch_embed(texts: list[str]) -> list[list[float]]:
-    """
-    Embed a list of texts in batches of BATCH_SIZE.
-
-    Args:
-        texts: List of texts to embed
-
-    Returns:
-        List of embeddings, same length and order as input
-
-    Raises:
-        openai.APIError: If any batch fails after retries
-    """
-    client = openai.OpenAI(api_key=settings.openai_api_key)
-    embeddings: list[list[float]] = []
-    total_batches = (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE
-
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i : i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        logger.info(f"Embedding batch {batch_num}/{total_batches} ({len(batch)} texts)")
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = client.embeddings.create(
-                    input=batch,
-                    model=EMBEDDING_MODEL,
-                )
-                # Preserve order — API returns in order, but be explicit
-                batch_embeddings = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
-                embeddings.extend(batch_embeddings)
-                break
-            except openai.RateLimitError:
-                wait = RETRY_DELAY * (2 ** attempt)
-                logger.warning(f"Rate limited on batch {batch_num}. Waiting {wait}s")
-                time.sleep(wait)
-            except openai.APIError as e:
-                logger.error(f"OpenAI API error on batch {batch_num}: {e}")
-                raise
-
-    return embeddings
-```
-
-**Rules:**
-- `embed_text` for query-time (single text, interactive)
-- `batch_embed` for ingestion (bulk, respects rate limits)
-- Never call `embed_text` in a loop — use `batch_embed`
-- Always retry on `RateLimitError`, never on `AuthenticationError`
-- Return order must match input order
-
----
-
-## `library/rag/retriever.py`
-
-```python
-"""
-library/rag/retriever.py
-
-Vector search → seed nodes → graph traversal → subgraph.
-"""
-import logging
-from dataclasses import dataclass
-
-from dbase.neo4j.client import Neo4jClient
-from library.rag.embedder import embed_text
-
-logger = logging.getLogger(__name__)
-
-TOP_K = 5           # seed nodes per entity type
-TRAVERSAL_DEPTH = 2 # hops from seed nodes
-
-
 @dataclass
 class SeedNode:
     id: str
     label: str
     name: str
     score: float
+    properties: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_search_result(cls, result: VectorSearchResult) -> "SeedNode": ...
 
 
 @dataclass
-class GraphNode:
-    id: str
-    label: str
-    name: str
-    title: str = ""
-    description: str = ""
-
-
-@dataclass
-class GraphEdge:
+class SubgraphEdge:
     from_id: str
     to_id: str
     type: str
-    properties: dict
+    properties: dict = field(default_factory=dict)
 
 
 @dataclass
-class Subgraph:
+class RetrievedSubgraph:
     seed_nodes: list[SeedNode]
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
+    nodes: list[dict]
+    edges: list[SubgraphEdge]
     cypher_used: str
-
-
-def retrieve(question: str, client: Neo4jClient) -> Subgraph:
-    """
-    Run the full retrieval pipeline for a question.
-
-    1. Embed the question
-    2. Vector search across all 4 entity types
-    3. Collect unique seed nodes
-    4. Graph traversal from seed nodes (depth 1-2)
-    5. Return subgraph
-
-    Args:
-        question: Natural language question
-        client: Neo4j client
-
-    Returns:
-        Subgraph with seed_nodes, nodes, edges, cypher_used
-    """
-    # Step 1: Embed query
-    query_vector = embed_text(question)
-
-    # Step 2: Vector search
-    seed_nodes = _vector_search(client, query_vector)
-    seed_ids = [node.id for node in seed_nodes]
-
-    # Step 3: Graph traversal
-    nodes, edges, traversal_cypher = _graph_traversal(client, seed_ids)
-
-    return Subgraph(
-        seed_nodes=seed_nodes,
-        nodes=nodes,
-        edges=edges,
-        cypher_used=traversal_cypher,
-    )
-
-
-def _vector_search(client: Neo4jClient, query_vector: list[float]) -> list[SeedNode]:
-    """Search all vector indexes and return deduplicated top-k seed nodes."""
-    seed_nodes: dict[str, SeedNode] = {}  # id → SeedNode (dedup by id)
-
-    searches = [
-        ("method_embeddings", "Method"),
-        ("task_embeddings", "Task"),
-        ("paper_embeddings", "Paper"),
-        ("dataset_embeddings", "Dataset"),
-    ]
-
-    for index_name, label in searches:
-        cypher = f"""
-        CALL db.index.vector.queryNodes($index_name, $top_k, $query_vector)
-        YIELD node, score
-        RETURN node.id AS id, '{label}' AS label,
-               coalesce(node.name, node.title, node.id) AS name,
-               score
-        ORDER BY score DESC
-        """
-        results = client.run_query(cypher, {
-            "index_name": index_name,
-            "top_k": TOP_K,
-            "query_vector": query_vector,
-        })
-        for row in results:
-            node_id = row["id"]
-            if node_id not in seed_nodes:
-                seed_nodes[node_id] = SeedNode(
-                    id=node_id,
-                    label=row["label"],
-                    name=row["name"],
-                    score=row["score"],
-                )
-
-    return list(seed_nodes.values())
-
-
-def _graph_traversal(
-    client: Neo4jClient,
-    seed_ids: list[str],
-) -> tuple[list[GraphNode], list[GraphEdge], str]:
-    """
-    Traverse the graph from seed nodes up to depth 2.
-
-    Returns nodes, edges, and the Cypher query used.
-    """
-    cypher = """
-    MATCH (seed)
-    WHERE seed.id IN $seed_ids
-    OPTIONAL MATCH (seed)-[r1]->(n1)
-    OPTIONAL MATCH (n1)-[r2]->(n2)
-    WITH
-        collect(DISTINCT seed) + collect(DISTINCT n1) + collect(DISTINCT n2) AS all_nodes,
-        collect(DISTINCT r1) + collect(DISTINCT r2) AS all_rels
-    UNWIND all_nodes AS node
-    WITH DISTINCT node, all_rels
-    WHERE node IS NOT NULL
-    RETURN
-        node.id AS id,
-        labels(node)[0] AS label,
-        coalesce(node.name, '') AS name,
-        coalesce(node.title, '') AS title,
-        coalesce(node.description, '') AS description,
-        all_rels
-    """
-
-    results = client.run_query(cypher, {"seed_ids": seed_ids})
-
-    nodes = []
-    edges_seen: set[str] = set()
-    edges = []
-
-    all_rels = results[0]["all_rels"] if results else []
-
-    for row in results:
-        nodes.append(GraphNode(
-            id=row["id"],
-            label=row["label"],
-            name=row["name"],
-            title=row["title"],
-            description=row["description"],
-        ))
-
-    for rel in all_rels:
-        if rel is None:
-            continue
-        edge_key = f"{rel.start_node['id']}-{rel.type}-{rel.end_node['id']}"
-        if edge_key not in edges_seen:
-            edges_seen.add(edge_key)
-            edges.append(GraphEdge(
-                from_id=rel.start_node["id"],
-                to_id=rel.end_node["id"],
-                type=rel.type,
-                properties=dict(rel),
-            ))
-
-    return nodes, edges, cypher
 ```
 
-**Retriever Rules:**
-- Dedup seed nodes across entity types (same ID can come up in multiple searches)
-- Graph traversal depth is configurable — start at 2 (depth 1 + depth 2)
-- Never embed inside `retrieve()` directly — call `embed_text()` from `embedder.py`
-- `cypher_used` must be the actual traversal Cypher (sent to frontend for display)
-- Handle empty results gracefully — `OPTIONAL MATCH` means some results may be None
+Defined in `repositories.py`:
+
+```python
+@dataclass(frozen=True)
+class VectorSearchResult:
+    id: str
+    label: str
+    name: str
+    score: float
+    properties: dict = field(default_factory=dict)
+```
 
 ---
 
-## `library/rag/generator.py`
+## Imports and Dependencies
+
+### Services (business logic — uses library only)
 
 ```python
-"""
-library/rag/generator.py
-
-Context serialization + LLM answer generation.
-"""
-import logging
-
-import openai
-
-from core.config import settings
-from library.rag.retriever import GraphEdge, GraphNode, SeedNode
-
-logger = logging.getLogger(__name__)
-
-LLM_MODEL = "gpt-4o-mini"
-MAX_TOKENS = 1024
-TEMPERATURE = 0.1  # Low temperature — we want grounded, factual answers
-
-SYSTEM_PROMPT = """You are a knowledgeable assistant for ML research.
-You answer questions about machine learning methods, tasks, papers, and datasets.
-Base your answers ONLY on the provided graph context.
-Be specific and cite methods, papers, or datasets from the context.
-If the context does not contain enough information, say so honestly."""
-
-
-def serialize_context(
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    seed_nodes: list[SeedNode],
-) -> str:
-    """
-    Serialize a subgraph into a structured text context for the LLM.
-
-    Format:
-        SEED NODES (most relevant):
-        - YOLO (Method, score: 0.924)
-
-        GRAPH RELATIONSHIPS:
-        - YOLO -[APPLIED_ON]-> COCO
-        - Paper: "You Only Look Once" -[INTRODUCES]-> YOLO
-
-    Args:
-        nodes: All nodes in the subgraph
-        edges: All edges in the subgraph
-        seed_nodes: Vector search results (scored)
-
-    Returns:
-        Structured text context string
-    """
-    lines = ["SEED NODES (most relevant to your question):"]
-    for sn in seed_nodes[:5]:  # Cap at 5 for context brevity
-        lines.append(f"- {sn.name} ({sn.label}, similarity: {sn.score:.3f})")
-
-    lines.append("")
-    lines.append("GRAPH RELATIONSHIPS:")
-
-    node_map = {n.id: n for n in nodes}
-
-    for edge in edges:
-        src = node_map.get(edge.from_id)
-        dst = node_map.get(edge.to_id)
-        if not src or not dst:
-            continue
-
-        src_name = src.title or src.name or src.id
-        dst_name = dst.title or dst.name or dst.id
-
-        if edge.properties:
-            props = ", ".join(f"{k}={v}" for k, v in edge.properties.items() if v)
-            rel_str = f"-[{edge.type} {{{props}}}]->"
-        else:
-            rel_str = f"-[{edge.type}]->"
-
-        lines.append(f"- {src_name} {rel_str} {dst_name}")
-
-    return "\n".join(lines)
-
-
-def generate_answer(
-    question: str,
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    seed_nodes: list[SeedNode],
-) -> str:
-    """
-    Generate a grounded answer using GPT-4o-mini.
-
-    Args:
-        question: User's natural language question
-        nodes: Subgraph nodes
-        edges: Subgraph edges
-        seed_nodes: Vector search results
-
-    Returns:
-        Natural language answer grounded in the subgraph
-
-    Raises:
-        openai.APIError: If LLM call fails
-    """
-    context = serialize_context(nodes, edges, seed_nodes)
-    client = openai.OpenAI(api_key=settings.openai_api_key)
-
-    user_message = f"""Context from the ML Knowledge Graph:
-{context}
-
-Question: {question}"""
-
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        max_tokens=MAX_TOKENS,
-        temperature=TEMPERATURE,
-    )
-
-    answer = response.choices[0].message.content or ""
-    logger.info(f"Generated answer ({len(answer)} chars), tokens used: {response.usage.total_tokens}")
-    return answer
+from graphrag_service.core.config import get_settings
+from graphrag_service.core.logging import get_logger
+from graphrag_service.library.llm import embed_text, embed_batch, generate
+from graphrag_service.library.generator import build_context
 ```
 
-**Generator Rules:**
-- `TEMPERATURE = 0.1` — low, for factual grounded answers
-- System prompt must state "answer ONLY from the provided context"
-- Cap seed nodes in context at 5 — more adds noise, not signal
-- Always return empty string on None (never raise from missing content)
-- Log token usage for cost monitoring
+### Repositories (DB operations only)
+
+```python
+from neomodel import StructuredNode
+from neomodel.semantic_filters import VectorFilter
+from graphrag_service.dbase.neo4j.client import Neo4jClient
+from graphrag_service.dbase.neo4j.models import Paper, Method, Task, Dataset
+from graphrag_service.shared.exceptions import RepositoryException
+```
+
+### UseCase (orchestration — wires service + repository via LangGraph)
+
+```python
+from graphrag_service.library.graph import run_rag_pipeline
+from .services import RAGService
+from .repositories import VectorSearchRepository, TraversalRepository
+```
+
+Configuration values (model names, dimensions, top_k) come from `get_settings()` -- never hardcoded.
+
+---
+
+## Embedding (via LangChain)
+
+Embeddings are now in `library/llm/embeddings.py` — provider-agnostic via LangChain. See [llm.md](llm.md) for full details.
+
+```python
+from graphrag_service.library.llm import embed_text, embed_batch
+```
+
+**Rules:**
+- `embed_text` for query-time (single text, interactive) — uses `embed_query()`
+- `embed_batch` for ingestion (bulk, chunked by `batch_size`) — uses `embed_documents()`
+- Never call `embed_text` in a loop -- use `embed_batch`
+- Newlines are replaced with spaces; empty strings produce a zero vector
+- Raises `ServiceException` on any failure (not provider-specific exceptions)
+- Provider and model come from `EMBEDDING_PROVIDER` + `EMBEDDING_MODEL` config
+
+---
+
+## `VectorSearchRepository`
+
+Uses neomodel `VectorFilter` for similarity search. Lives in `repositories.py`.
+
+```python
+SEARCH_MODELS: list[type[StructuredNode]] = [Paper, Method, Task, Dataset]
+
+class VectorSearchRepository:
+
+    def __init__(self, client: Neo4jClient):
+        self._client = client
+
+    def search(self, vec: list[float], model: type[StructuredNode], k: int) -> list[VectorSearchResult]:
+        """Search a single neomodel node class by vector similarity."""
+        hits = model.nodes.filter(
+            vector_filter=VectorFilter(
+                topk=k,
+                vector_attribute_name="embedding",
+                candidate_vector=vec,
+            )
+        ).all()
+        ...
+
+    def search_all(self, vec: list[float], k: int) -> list[VectorSearchResult]:
+        """Search across all 4 node models and return top-k overall."""
+        ...
+```
+
+**Key details:**
+- Vector search uses `neomodel.semantic_filters.VectorFilter` -- not raw `CALL db.index.vector.queryNodes` Cypher
+- Searches all 4 model types: `Paper`, `Method`, `Task`, `Dataset`
+- Results from all models are merged, sorted by score descending, and truncated to top-k
+- Node ID is `node.uid` (not `node.id`)
+- Embedding property is excluded from the returned `properties` dict
+- Raises `RepositoryException` on failure
+
+---
+
+## `TraversalRepository`
+
+Raw Cypher for 2-hop traversal. Lives in `repositories.py`. Neomodel does not support multi-hop traversal natively, so this uses the Neo4j client directly.
+
+```python
+TRAVERSE_QUERY = """
+    MATCH (seed) WHERE seed.uid IN $ids
+    OPTIONAL MATCH (seed)-[r1]->(n1)
+    OPTIONAL MATCH (n1)-[r2]->(n2)
+    RETURN seed,
+           collect(DISTINCT {from: seed.uid, to: n1.uid, type: type(r1), props: properties(r1)}) AS e1,
+           collect(DISTINCT n1) AS nodes1,
+           collect(DISTINCT {from: n1.uid,  to: n2.uid, type: type(r2), props: properties(r2)}) AS e2,
+           collect(DISTINCT n2) AS nodes2
+"""
+
+class TraversalRepository:
+
+    def __init__(self, client: Neo4jClient):
+        self._client = client
+
+    def traverse(self, node_ids: list[str]) -> tuple[dict[str, dict], list[dict]]:
+        """Perform 2-hop traversal from seed node IDs.
+        Returns (nodes_by_id, edges_list)."""
+        ...
+```
+
+**Key details:**
+- Uses `seed.uid` (not `seed.id`) in all Cypher
+- Embedding properties are stripped from returned node dicts
+- Null nodes from `OPTIONAL MATCH` are filtered out
+- Edges require non-null `from`, `to`, and `type` to be included
+- Raises `RepositoryException` on failure
+
+---
+
+## `RAGService` (Service Layer)
+
+Orchestrates library calls — NO DB access. Lives in `modules/rag/services.py`.
+
+```python
+class RAGService:
+    """Orchestrates LLM library calls for the RAG pipeline."""
+
+    def embed_question(self, question: str) -> list[float]:
+        """Embed a question using library/llm."""
+        return embed_text(question)
+
+    def generate_answer(self, question: str, context: str) -> str:
+        """Generate an answer using library/llm."""
+        return generate(question, context)
+
+    def build_context(self, seed_nodes: list, edges: list) -> str:
+        """Build context string using library/generator."""
+        return build_context(seed_nodes, edges)
+```
+
+**Rules:**
+- Service uses `library/llm` and `library/generator` — never DB or repositories
+- Provider and model are transparent — configured via `LLM_PROVIDER` / `EMBEDDING_PROVIDER`
+- Raises `ServiceException` on failure
+
+---
+
+## LLM Generation (via LangChain)
+
+Generation is now in `library/llm/chat.py` — provider-agnostic via LangChain. See [llm.md](llm.md) for full details.
+
+```python
+from graphrag_service.library.llm import generate
+```
+
+**Rules:**
+- LLM model comes from `LLM_PROVIDER` + `LLM_MODEL` config
+- System prompt instructs the LLM to answer ONLY from the provided context
+- Edges in context are capped at 30 to avoid overwhelming the prompt
+- Raises `ServiceException` on failure (not provider-specific exceptions)
 
 ---
 
 ## Context Serialization Format
 
-The context passed to the LLM must be:
-1. **Structured, not prose** — the LLM reads it better
-2. **Entity-centric** — name the node, state its type and score
-3. **Relationship-explicit** — `A -[REL {props}]-> B` format
+The `_build_context` method produces structured text (not prose):
 
-Example output:
 ```
-SEED NODES (most relevant to your question):
-- YOLO (Method, similarity: 0.924)
-- Object Detection (Task, similarity: 0.911)
+=== GRAPH CONTEXT ===
+SEED NODES:
+  [Method] YOLO (score=0.92)
+  [Task] Object Detection (score=0.91)
 
-GRAPH RELATIONSHIPS:
-- YOLO -[APPLIED_ON]-> COCO
-- YOLO -[EVALUATED_ON {metric=mAP, score=45.5}]-> COCO
-- You Only Look Once -[INTRODUCES]-> YOLO
-- You Only Look Once -[ADDRESSES]-> Object Detection
+RELATIONSHIPS:
+  (yolo-uid) -[APPLIED_ON]-> (coco-uid) {...}
+  (paper-uid) -[INTRODUCES]-> (yolo-uid) {...}
 ```
+
+Design rationale:
+1. **Structured, not prose** -- LLMs parse structured formats more reliably
+2. **Entity-centric** -- label and score shown for each seed node
+3. **Relationship-explicit** -- `(from) -[TYPE]-> (to)` format with optional properties
+
+---
+
+## `RAGUseCase` (UseCase Layer)
+
+Orchestrates the full pipeline via LangGraph. Lives in `modules/rag/usecase.py`.
+
+```python
+from graphrag_service.library.graph import run_rag_pipeline
+
+from .repositories import VectorSearchRepository, TraversalRepository
+from .services import RAGService
+
+
+class RAGUseCase:
+    """Orchestrates the full RAG pipeline — wires service + repository into LangGraph."""
+
+    def __init__(self, client: Neo4jClient):
+        self.service = RAGService()
+        self.vector_repo = VectorSearchRepository(client)
+        self.traversal_repo = TraversalRepository(client)
+
+    def query(self, question: str) -> tuple[str, dict]:
+        """Run the RAG pipeline using LangGraph."""
+        result = run_rag_pipeline(
+            question=question,
+            embed_fn=self.service.embed_question,
+            search_fn=self.vector_repo.search_all,
+            traverse_fn=self.traversal_repo.traverse,
+            build_context_fn=self.service.build_context,
+            generate_fn=self.service.generate_answer,
+        )
+        return result["answer"], result["subgraph"]
+```
+
+**Key points:**
+- UseCase wires service (library calls) + repository (DB) into LangGraph
+- The LangGraph pipeline handles the execution flow (embed → search → traverse → context → generate)
+- Each step function is injected — the graph definition has no direct dependencies
+- See [llm.md](llm.md) for the full LangGraph pipeline definition
 
 ---
 

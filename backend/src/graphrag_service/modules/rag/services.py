@@ -1,0 +1,30 @@
+"""
+RAG service — orchestrates library calls for embedding, context building, and generation.
+
+Does NOT access the database. Uses library/ for reusable logic.
+"""
+
+from graphrag_service.core.logging import get_logger
+from graphrag_service.library.generator import build_context
+from graphrag_service.library.llm import embed_text, generate
+
+logger = get_logger(__name__)
+
+
+class RAGService:
+    """Orchestrates LLM library calls for the RAG pipeline. No DB access."""
+
+    @staticmethod
+    def embed_question(question: str) -> list[float]:
+        """Embed a question using library/llm."""
+        return embed_text(question)
+
+    @staticmethod
+    def generate_answer(question: str, context: str) -> str:
+        """Generate an answer using library/llm."""
+        return generate(question, context)
+
+    @staticmethod
+    def build_context(seed_nodes: list, edges: list) -> str:
+        """Build context string using library/generator."""
+        return build_context(seed_nodes, edges)

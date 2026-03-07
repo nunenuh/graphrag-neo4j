@@ -1,6 +1,6 @@
 # Backend Spec: API Layer
 
-Files: `backend/src/router.py`, `backend/src/main.py`
+Files: `backend/src/graphrag_service/main.py`, `backend/src/graphrag_service/router.py`
 
 See also: [[projects/graphrag-neo4j/docs/technical/api-spec]]
 
@@ -10,10 +10,17 @@ See also: [[projects/graphrag-neo4j/docs/technical/api-spec]]
 
 | File | Does |
 |------|------|
-| `src/router.py` | FastAPI router — endpoint definitions, request/response models, error handling |
-| `src/main.py` | App factory — creates FastAPI app, registers CORS, mounts router |
+| `graphrag_service/main.py` | App factory (`create_app()`) — creates FastAPI app, registers CORS, mounts aggregated router |
+| `graphrag_service/router.py` | Aggregates module routers under `/api/v1/{module}` |
+| `graphrag_service/modules/{module}/apiv1/handler.py` | Per-module endpoint definitions |
+| `graphrag_service/modules/{module}/schemas.py` | Per-module Pydantic request/response models |
+| `graphrag_service/core/config.py` | `Settings` (pydantic-settings) + `get_settings()` with `lru_cache` |
+| `graphrag_service/core/auth.py` | `get_api_key` dependency — X-API-Key header validation |
+| `graphrag_service/core/dependencies.py` | `get_neo4j_client()` singleton, `close_neo4j_client()` |
+| `graphrag_service/core/logging.py` | structlog setup via `setup_logging()`, `get_logger(__name__)` |
+| `graphrag_service/dbase/neo4j/client.py` | Neo4j client using neomodel (`db.cypher_query`) |
 
-The API layer is **thin**: validate → call RAG/graph layer → serialize response. No business logic here.
+The API layer is **thin**: validate -> delegate to `usecase` -> serialize response. No business logic in handlers.
 
 ---
 
@@ -21,297 +28,317 @@ The API layer is **thin**: validate → call RAG/graph layer → serialize respo
 
 ```python
 """
-main.py
+graphrag_service/main.py
 
-FastAPI app factory. Configures CORS, registers routers.
+FastAPI app factory. Configures CORS, registers routers, manages lifecycle.
 """
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from router import router
-from core.config import settings
+from .core.config import get_settings
+from .core.dependencies import close_neo4j_client
+from .core.logging import setup_logging
+from .router import api_router
 
-app = FastAPI(
-    title="graphrag-neo4j",
-    description="Graph RAG over ML research papers",
-    version="0.1.0",
-)
+logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-app.include_router(router, prefix="/api")
+def get_docs_path():
+    """Get docs path based on environment."""
+    settings = get_settings()
+    if settings.APP_ENVIRONMENT in ["development", "local", "staging"]:
+        return "/docs"
+    return None
+
+
+def get_redoc_path():
+    """Get redoc path based on environment."""
+    settings = get_settings()
+    if settings.APP_ENVIRONMENT in ["development", "local", "staging"]:
+        return "/redoc"
+    return None
+
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    settings = get_settings()
+    setup_logging()
+
+    app = FastAPI(
+        title=settings.APP_NAME,
+        description=settings.APP_DESCRIPTION,
+        version=settings.APP_VERSION,
+        docs_url=get_docs_path(),
+        redoc_url=get_redoc_path(),
+        debug=settings.APP_DEBUG,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(api_router, prefix="/api")
+
+    return app
+
+
+app = create_app()
 ```
 
 **Rules:**
+- Settings loaded via `get_settings()` (cached with `lru_cache`) — never import a global `settings` object directly
 - CORS origins come from `settings.allowed_origins` — never hardcode URLs
-- Router prefix is `/api`
+- Router prefix is `/api`; version prefix `/v1` is added by the aggregating router
+- Swagger docs (`/docs`, `/redoc`) are disabled in production via `get_docs_path()` / `get_redoc_path()`
 - No business logic in `main.py`
+- Shutdown event calls `close_neo4j_client()` to cleanly close the neomodel connection
+- Default port is **8005** (configured via `APP_PORT`)
+
+---
+
+## `router.py` — Route Aggregator
+
+```python
+"""
+graphrag_service/router.py
+
+Aggregates all module routers under versioned prefixes.
+"""
+from fastapi import APIRouter
+
+from .modules.graph.apiv1.handler import router as graph_router
+from .modules.health.apiv1.handler import router as health_router
+from .modules.rag.apiv1.handler import router as rag_router
+
+api_router = APIRouter()
+
+api_router.include_router(health_router, prefix="/v1/health", tags=["Health"])
+api_router.include_router(graph_router, prefix="/v1/graph", tags=["Graph"])
+api_router.include_router(rag_router, prefix="/v1/rag", tags=["RAG"])
+```
+
+There is **no monolithic router** with all endpoints. Each module owns its own `apiv1/handler.py`. The aggregating `router.py` only wires them together.
+
+---
+
+## Endpoint Summary
+
+| Method | Full Path | Module | Handler |
+|--------|-----------|--------|---------|
+| `GET` | `/api/v1/health/ping` | health | `modules/health/apiv1/handler.py` |
+| `GET` | `/api/v1/health/status` | health | `modules/health/apiv1/handler.py` |
+| `GET` | `/api/v1/graph/schema` | graph | `modules/graph/apiv1/handler.py` |
+| `GET` | `/api/v1/graph/explore` | graph | `modules/graph/apiv1/handler.py` |
+| `POST` | `/api/v1/rag/query` | rag | `modules/rag/apiv1/handler.py` |
 
 ---
 
 ## Pydantic Models
 
-All request/response types are defined in `router.py` (or a separate `models.py` at `src/` root if the file grows large).
+Models live in each module's `schemas.py` file, not in the router.
+
+### Health Module — `modules/health/schemas.py`
 
 ```python
-from pydantic import BaseModel, Field
+class PingResponse(BaseModel):
+    status: str
+    timestamp: datetime
+    message: str
 
-
-# --- Request ---
-
-class QueryRequest(BaseModel):
-    question: str = Field(..., min_length=1, description="Natural language question")
-
-
-# --- Response sub-models ---
-
-class SeedNode(BaseModel):
-    id: str
-    label: str   # "Paper" | "Method" | "Task" | "Dataset"
+class ComponentHealth(BaseModel):
     name: str
-    score: float = Field(..., ge=0.0, le=1.0)
+    status: str                          # "healthy" | "unhealthy"
+    message: str | None = None
+    response_time_ms: float | None = None
 
+class HealthStatusResponse(BaseModel):
+    status: str
+    timestamp: datetime
+    version: str
+    components: list[ComponentHealth]
+    uptime_seconds: float
+```
 
-class GraphNode(BaseModel):
-    id: str
-    label: str
+### Graph Module — `modules/graph/schemas.py`
+
+```python
+class GraphSchemaResponse(BaseModel):
+    node_labels: list[str]
+    relationship_types: list[str]
+
+class GraphNodeOut(BaseModel):
+    id: str = ""
+    label: str = "Node"
     name: str = ""
-    title: str = ""
-    description: str = ""
+    properties: dict = Field(default_factory=dict)
 
+class GraphEdgeOut(BaseModel):
+    from_id: str
+    to_id: str
+    type: str
 
-class GraphEdge(BaseModel):
+class GraphExploreResponse(BaseModel):
+    nodes: list[dict]
+    edges: list[GraphEdgeOut]
+```
+
+### RAG Module — `modules/rag/schemas.py`
+
+```python
+class QueryRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+
+class SeedNodeOut(BaseModel):
+    id: str
+    label: str       # "Paper" | "Method" | "Task" | "Dataset"
+    name: str
+    score: float | None = None
+
+class EdgeOut(BaseModel):
     from_id: str
     to_id: str
     type: str
     properties: dict = Field(default_factory=dict)
 
-
-# --- Main response ---
-
 class QueryResponse(BaseModel):
     answer: str
-    seed_nodes: list[SeedNode]
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
+    seed_nodes: list[SeedNodeOut]
+    nodes: list[dict]
+    edges: list[EdgeOut]
     cypher_used: str
     latency_ms: int
-
-
-# --- Supporting responses ---
-
-class SchemaResponse(BaseModel):
-    node_labels: list[str]
-    relationship_types: list[str]
-
-
-class ExploreNode(BaseModel):
-    id: str
-    name: str
-    label: str
-
-
-class ExploreEdge(BaseModel):
-    from_id: str
-    to_id: str
-    type: str
-
-
-class ExploreResponse(BaseModel):
-    nodes: list[ExploreNode]
-    edges: list[ExploreEdge]
-
-
-class HealthResponse(BaseModel):
-    status: str    # "ok"
-    neo4j: str     # "connected" | "error"
-    version: str
 ```
 
 **Model Rules:**
 - Use `Field(..., min_length=1)` for required non-empty strings
 - Use `Field(default_factory=dict)` for optional dict fields (not `{}` as default)
-- All response models are `BaseModel` — not `orm_mode` (we're not using SQLAlchemy)
+- All response models are `BaseModel` — no `orm_mode`
 - `label` is always the Neo4j label string: `"Paper"`, `"Method"`, `"Task"`, `"Dataset"`
 
 ---
 
-## `router.py`
+## Module Handlers
+
+Each module follows the pattern: handler imports a `UseCase` class, instantiates it (injecting `Neo4jClient` via `Depends(get_neo4j_client)` where needed), and delegates all logic.
+
+### Health Handler — `modules/health/apiv1/handler.py`
 
 ```python
-"""
-router.py
+from graphrag_service.core.config import get_settings
+from graphrag_service.core.logging import get_logger
 
-FastAPI route definitions for graphrag-neo4j.
-All business logic is delegated to library/rag/ and library/graph/ modules.
-"""
-import logging
-import time
+from ..schemas import HealthStatusResponse, PingResponse
+from ..usecase import HealthUseCase
 
-from fastapi import APIRouter, HTTPException, Query
-
-from core.config import settings
-from dbase.neo4j.client import Neo4jClient
-from library.rag.retriever import retrieve
-from library.rag.generator import generate_answer
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 router = APIRouter()
 
+@router.get("/ping", response_model=PingResponse)
+async def ping():
+    return PingResponse(status="ok", timestamp=datetime.now(UTC), message="pong")
 
-def get_neo4j_client() -> Neo4jClient:
-    """Create a Neo4j client instance."""
-    return Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
+@router.get("/status", response_model=HealthStatusResponse)
+async def get_health_status():
+    usecase = HealthUseCase()
+    overall_status, components, uptime = usecase.get_basic_health()
+    return HealthStatusResponse(
+        status=overall_status,
+        timestamp=datetime.now(UTC),
+        version=get_settings().APP_VERSION,
+        components=components,
+        uptime_seconds=uptime,
+    )
+```
 
+### Graph Handler — `modules/graph/apiv1/handler.py`
 
-# ─────────────────────────────────────────────
-# POST /api/query
-# ─────────────────────────────────────────────
+```python
+from graphrag_service.core.dependencies import get_neo4j_client
+from graphrag_service.core.logging import get_logger
+from graphrag_service.dbase.neo4j.client import Neo4jClient
+
+from ..schemas import GraphExploreResponse, GraphSchemaResponse
+from ..usecase import GraphUseCase
+
+logger = get_logger(__name__)
+router = APIRouter()
+
+@router.get("/schema", response_model=GraphSchemaResponse)
+async def get_schema(client: Neo4jClient = Depends(get_neo4j_client)):
+    usecase = GraphUseCase(client)
+    labels, rels = usecase.get_schema()
+    return GraphSchemaResponse(node_labels=labels, relationship_types=rels)
+
+@router.get("/explore", response_model=GraphExploreResponse)
+async def explore(
+    limit: int = Query(50, ge=1, le=500),
+    client: Neo4jClient = Depends(get_neo4j_client),
+):
+    usecase = GraphUseCase(client)
+    nodes, edges = usecase.explore(limit=limit)
+    return GraphExploreResponse(nodes=nodes, edges=edges)
+```
+
+### RAG Handler — `modules/rag/apiv1/handler.py`
+
+```python
+from graphrag_service.core.dependencies import get_neo4j_client
+from graphrag_service.core.logging import get_logger
+from graphrag_service.dbase.neo4j.client import Neo4jClient
+
+from ..schemas import EdgeOut, QueryRequest, QueryResponse, SeedNodeOut
+from ..usecase import RAGUseCase
+
+logger = get_logger(__name__)
+router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest) -> QueryResponse:
-    """
-    Run the Graph RAG pipeline.
-
-    1. Embed the question
-    2. Vector search for seed nodes
-    3. Graph traversal from seed nodes
-    4. Generate LLM answer from subgraph
-    """
-    start = time.time()
-    client = get_neo4j_client()
-
-    try:
-        subgraph = retrieve(request.question, client)
-    except Exception as e:
-        logger.error(f"Retrieval failed: {e}")
-        raise HTTPException(status_code=500, detail="Graph retrieval failed")
-
-    try:
-        answer = generate_answer(
-            question=request.question,
-            nodes=subgraph.nodes,
-            edges=subgraph.edges,
-            seed_nodes=subgraph.seed_nodes,
-        )
-    except Exception as e:
-        logger.error(f"Answer generation failed: {e}")
-        raise HTTPException(status_code=500, detail="Answer generation failed")
-
-    latency_ms = int((time.time() - start) * 1000)
-
+async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_client)):
+    usecase = RAGUseCase(client)
+    t0 = time.time()
+    answer, sg = usecase.query(req.question)
     return QueryResponse(
         answer=answer,
-        seed_nodes=[
-            SeedNode(id=sn.id, label=sn.label, name=sn.name, score=sn.score)
-            for sn in subgraph.seed_nodes
-        ],
-        nodes=[
-            GraphNode(id=n.id, label=n.label, name=n.name, title=n.title, description=n.description)
-            for n in subgraph.nodes
-        ],
-        edges=[
-            GraphEdge(from_id=e.from_id, to_id=e.to_id, type=e.type, properties=e.properties)
-            for e in subgraph.edges
-        ],
-        cypher_used=subgraph.cypher_used,
-        latency_ms=latency_ms,
+        seed_nodes=[SeedNodeOut(id=s.id, label=s.label, name=s.name, score=s.score) for s in sg.seed_nodes],
+        nodes=sg.nodes,
+        edges=[EdgeOut(from_id=e.from_id, to_id=e.to_id, type=e.type, properties=e.properties) for e in sg.edges],
+        cypher_used=sg.cypher_used,
+        latency_ms=int((time.time() - t0) * 1000),
     )
-
-
-# ─────────────────────────────────────────────
-# GET /api/graph/schema
-# ─────────────────────────────────────────────
-
-@router.get("/graph/schema", response_model=SchemaResponse)
-async def graph_schema() -> SchemaResponse:
-    """Return all node labels and relationship types."""
-    client = get_neo4j_client()
-    try:
-        labels_result = client.run_query("CALL db.labels() YIELD label RETURN collect(label) AS labels")
-        rels_result = client.run_query("CALL db.relationshipTypes() YIELD relationshipType RETURN collect(relationshipType) AS types")
-        return SchemaResponse(
-            node_labels=labels_result[0]["labels"] if labels_result else [],
-            relationship_types=rels_result[0]["types"] if rels_result else [],
-        )
-    except Exception as e:
-        logger.error(f"Schema query failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch schema")
-
-
-# ─────────────────────────────────────────────
-# GET /api/graph/explore
-# ─────────────────────────────────────────────
-
-@router.get("/graph/explore", response_model=ExploreResponse)
-async def graph_explore(limit: int = Query(default=50, ge=1, le=200)) -> ExploreResponse:
-    """Return a sample of the graph for initial visualization."""
-    client = get_neo4j_client()
-    cypher = """
-    MATCH (a)-[r]->(b)
-    RETURN
-        a.id AS from_id, coalesce(a.name, a.title, a.id) AS from_name, labels(a)[0] AS from_label,
-        b.id AS to_id, coalesce(b.name, b.title, b.id) AS to_name, labels(b)[0] AS to_label,
-        type(r) AS rel_type
-    LIMIT $limit
-    """
-    try:
-        results = client.run_query(cypher, {"limit": limit})
-    except Exception as e:
-        logger.error(f"Explore query failed: {e}")
-        raise HTTPException(status_code=500, detail="Graph explore failed")
-
-    nodes_seen: dict[str, ExploreNode] = {}
-    edges = []
-
-    for row in results:
-        for nid, name, label in [
-            (row["from_id"], row["from_name"], row["from_label"]),
-            (row["to_id"], row["to_name"], row["to_label"]),
-        ]:
-            if nid not in nodes_seen:
-                nodes_seen[nid] = ExploreNode(id=nid, name=name, label=label)
-        edges.append(ExploreEdge(from_id=row["from_id"], to_id=row["to_id"], type=row["rel_type"]))
-
-    return ExploreResponse(nodes=list(nodes_seen.values()), edges=edges)
-
-
-# ─────────────────────────────────────────────
-# GET /api/health
-# ─────────────────────────────────────────────
-
-@router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    """Health check — returns API status and Neo4j connectivity."""
-    neo4j_status = "error"
-    try:
-        client = get_neo4j_client()
-        client.run_query("RETURN 1")
-        neo4j_status = "connected"
-    except Exception as e:
-        logger.warning(f"Neo4j health check failed: {e}")
-
-    return HealthResponse(status="ok", neo4j=neo4j_status, version="0.1.0")
 ```
 
 ---
 
 ## Error Handling Rules
 
-| Scenario | HTTP Status | `detail` message |
-|----------|-------------|-----------------|
+| Scenario | HTTP Status | Error Key |
+|----------|-------------|-----------|
 | Empty question | 422 (auto by Pydantic `min_length=1`) | Pydantic validation error |
-| Neo4j unreachable | 500 | `"Graph retrieval failed"` |
-| OpenAI API error | 500 | `"Answer generation failed"` |
-| Internal error | 500 | Generic message — no stack traces in responses |
+| Neo4j unreachable | 503 | `graph_schema_error` / `graph_explore_error` |
+| OpenAI API error | 503 | `openai_error` |
+| Health check failure | 503 | `health_check_failed` |
+| Internal error | 500 | `internal_error` |
 
-**Never expose internal errors** (stack traces, Neo4j error messages, OpenAI error messages) in the HTTP response. Log them server-side, return a generic message to the client.
+Error responses use a structured detail dict:
+
+```python
+raise HTTPException(
+    status_code=503,
+    detail={
+        "error": "graph_schema_error",
+        "message": str(e),
+        "timestamp": datetime.now(UTC).isoformat(),
+    },
+)
+```
+
+**Never expose internal errors** (stack traces, Neo4j error messages, OpenAI error messages) in the HTTP response. Log them server-side with structlog, return a structured error to the client.
 
 ---
 
@@ -319,47 +346,162 @@ async def health() -> HealthResponse:
 
 ```python
 """
-dbase/neo4j/client.py
+graphrag_service/dbase/neo4j/client.py
 
-Neo4j driver wrapper. All queries go through run_query().
+Neo4j client using neomodel for connection and query execution.
 """
-import logging
-from neo4j import GraphDatabase, Driver
+from neomodel import db, get_config, install_all_labels
 
-logger = logging.getLogger(__name__)
+from graphrag_service.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Neo4jClient:
-    """Thin wrapper around the Neo4j Python driver."""
+    """Neo4j client using neomodel for connection and query execution."""
 
-    def __init__(self, uri: str, user: str, password: str) -> None:
-        self._driver: Driver = GraphDatabase.driver(uri, auth=(user, password))
+    def __init__(self, uri: str, user: str, password: str):
+        self._uri = uri
+        self._user = user
+        self._password = password
+        self._connected = False
+        self._connect()
 
-    def run_query(self, cypher: str, params: dict | None = None) -> list[dict]:
-        """
-        Execute a Cypher query and return results as a list of dicts.
-
-        Args:
-            cypher: Cypher query string (use $param_name for parameters)
-            params: Query parameters (never string-interpolate values into cypher)
-
-        Returns:
-            List of result rows as dictionaries
-        """
-        with self._driver.session() as session:
-            result = session.run(cypher, params or {})
-            return [dict(record) for record in result]
+    def _connect(self) -> None:
+        """Configure neomodel connection."""
+        host = self._uri.replace("bolt://", "").replace("neo4j://", "")
+        config = get_config()
+        config.database_url = f"bolt://{self._user}:{self._password}@{host}"
+        self._connected = True
+        logger.info("Neomodel connection configured", uri=self._uri)
 
     def close(self) -> None:
-        """Close the driver connection."""
-        self._driver.close()
+        """Close the neomodel connection."""
+        if self._connected:
+            db.close_connection()
+            self._connected = False
+            logger.info("Neomodel connection closed")
+
+    def verify_connection(self) -> bool:
+        """Check if Neo4j is reachable."""
+        try:
+            db.cypher_query("RETURN 1")
+            return True
+        except Exception as e:
+            logger.error("Neo4j connectivity check failed", error=str(e))
+            return False
+
+    def install_labels(self) -> None:
+        """Install all neomodel labels, constraints, and indexes in Neo4j."""
+        install_all_labels()
+        logger.info("Neomodel labels installed")
+
+    def run_query(self, cypher: str, params: dict | None = None) -> list:
+        """Execute a raw Cypher query and return results as list of dicts."""
+        results, meta = db.cypher_query(cypher, params or {})
+        if not meta:
+            return results
+        return [dict(zip(meta, row)) for row in results]
 ```
 
 **Neo4j Client Rules:**
+- Uses **neomodel** (not the raw `neo4j` Python driver)
+- All queries go through `db.cypher_query()` from neomodel
 - Always parameterize queries — `$param_name`, never f-string into Cypher
-- `run_query` always returns `list[dict]` — never raw Record objects
-- One session per query call (simple, no connection pooling needed for this project)
-- `close()` called when app shuts down
+- `run_query` returns `list[dict]` (column names from `meta` zipped with row values)
+- `verify_connection()` for health checks
+- `install_labels()` for setting up neomodel constraints/indexes
+- `close()` calls `db.close_connection()` — invoked on app shutdown
+
+---
+
+## Dependency Injection — `core/dependencies.py`
+
+```python
+from graphrag_service.core.config import get_settings
+from graphrag_service.dbase.neo4j.client import Neo4jClient
+
+_neo4j_client: Neo4jClient | None = None
+
+def get_neo4j_client() -> Neo4jClient:
+    """Get or create Neo4j client singleton."""
+    global _neo4j_client
+    if _neo4j_client is None:
+        settings = get_settings()
+        _neo4j_client = Neo4jClient(
+            settings.NEO4J_URI, settings.NEO4J_USER, settings.NEO4J_PASSWORD
+        )
+    return _neo4j_client
+
+def close_neo4j_client() -> None:
+    """Close Neo4j client connection."""
+    global _neo4j_client
+    if _neo4j_client is not None:
+        _neo4j_client.close()
+        _neo4j_client = None
+```
+
+Handlers inject the client via `client: Neo4jClient = Depends(get_neo4j_client)`.
+
+---
+
+## Authentication — `core/auth.py`
+
+```python
+from fastapi import HTTPException, Security
+from fastapi.security.api_key import APIKeyHeader
+from starlette.status import HTTP_403_FORBIDDEN
+
+from .config import get_settings
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if not api_key_header:
+        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="No API key provided")
+    if api_key_header != get_settings().APP_X_API_KEY:
+        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="Invalid API key")
+    return api_key_header
+```
+
+Use as a dependency: `Depends(get_api_key)`. The API key is set via `APP_X_API_KEY` env var.
+
+---
+
+## Logging — `core/logging.py`
+
+- Uses **structlog** for structured logging
+- Development: `ConsoleRenderer()` at DEBUG level
+- Production: `JSONRenderer()` at INFO level
+- Get a logger anywhere: `from graphrag_service.core.logging import get_logger; logger = get_logger(__name__)`
+- Third-party loggers (uvicorn, fastapi, neo4j) set to WARNING
+
+---
+
+## Configuration — `core/config.py`
+
+Key settings (loaded from env vars via `pydantic-settings`):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `APP_NAME` | `"GraphRAG Service"` | Application name |
+| `APP_HOST` | `"0.0.0.0"` | Server bind host |
+| `APP_PORT` | `8005` | Server port |
+| `APP_ENVIRONMENT` | `"development"` | Environment (`development`, `local`, `staging`, `production`) |
+| `APP_DEBUG` | `False` | Debug mode (enables auto-reload) |
+| `APP_X_API_KEY` | `"changeme"` | API key for X-API-Key auth |
+| `ALLOWED_ORIGINS_STR` | `"http://localhost:3000,http://localhost:5173"` | CORS origins (comma-separated) |
+| `NEO4J_URI` | `"bolt://localhost:7687"` | Neo4j bolt URI |
+| `NEO4J_USER` | `"neo4j"` | Neo4j username |
+| `NEO4J_PASSWORD` | `"password123"` | Neo4j password |
+| `OPENAI_API_KEY` | `""` | OpenAI API key |
+| `EMBEDDING_MODEL` | `"text-embedding-3-small"` | Embedding model |
+| `EMBEDDING_DIM` | `1536` | Embedding dimension |
+| `LLM_MODEL` | `"gpt-4o-mini"` | LLM model |
+| `TOP_K_SEED_NODES` | `5` | Vector search top-k |
+| `TRAVERSAL_DEPTH` | `2` | Graph traversal depth |
+
+Access via `get_settings()` — cached with `@lru_cache()`.
 
 ---
 
@@ -367,10 +509,16 @@ class Neo4jClient:
 
 ```python
 # Allowed origins from settings
-# Development: http://localhost:5173 (Vite dev server)
-# Production: set ALLOWED_ORIGINS env var to your domain
+# Development: http://localhost:5173 (Vite), http://localhost:3000
+# Production: set ALLOWED_ORIGINS_STR env var to your domain
 
-ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+ALLOWED_ORIGINS_STR=http://localhost:5173,http://localhost:3000
 ```
 
-For production, set `ALLOWED_ORIGINS` to the deployed frontend URL. Never use `*` in production.
+For production, set `ALLOWED_ORIGINS_STR` to the deployed frontend URL. Never use `*` in production.
+
+---
+
+## Docker
+
+Docker Compose is located at `docker/docker-compose.dev.yml` (not at the repo root).

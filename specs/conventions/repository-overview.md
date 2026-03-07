@@ -1,12 +1,14 @@
 ---
 created: 2026-03-02
+updated: 2026-03-07
 source: https://raw.githubusercontent.com/nunenuh/sdd-python-service/refs/heads/main/specs/conventions/00-repository-overview.md
 ---
 
 # Repository Overview
 
-> **Project Mapping**: This document describes the general `fastapi-service` template structure.
-> For how it maps to `graphrag-neo4j`, see the project-specific section below.
+> **Project Mapping**: This document describes the `graphrag-neo4j` repository structure,
+> adapted from the `fastapi-service` template. See the Original Template Reference at the bottom
+> for the upstream structure.
 
 ---
 
@@ -16,8 +18,10 @@ Root is minimal — only infrastructure files. Each service (`backend/`, `fronte
 
 ```
 graphrag-neo4j/                  # Root — GitHub repo root
-├── docker-compose.yml           # Orchestrates all services
-├── .env.example                 # Template for root-level secrets (Neo4j, OpenAI, API_KEY)
+├── docker/
+│   └── docker-compose.dev.yml   # Orchestrates all services (dev)
+├── env.example                  # Template for root-level secrets (Neo4j, OpenAI, APP_X_API_KEY)
+├── Makefile                     # Top-level commands (make backend, make frontend, make dev)
 ├── .gitignore
 ├── README.md
 ├── data/                        # Papers With Code data (shared by backend)
@@ -38,99 +42,117 @@ graphrag-neo4j/                  # Root — GitHub repo root
 
 ### `backend/` — Independent Python Service
 
-Has its own Poetry setup, Dockerfile, and tests. All Python source lives in `backend/src/`. No Python tooling at repo root.
+Has its own Poetry setup, Dockerfile, and tests. All Python source lives in `backend/src/graphrag_service/` as a proper Python package. No Python tooling at repo root.
 
 ```
 backend/
-├── pyproject.toml               # Poetry: deps + tool config (pythonpath = ["src"])
+├── pyproject.toml               # Poetry: deps + tool config
+│                                #   packages = [{include = "graphrag_service", from = "src"}]
+│                                #   scripts: start, dev, cli
+├── poetry.toml                  # Poetry local config
 ├── poetry.lock
-├── Dockerfile                   # Multi-stage: build → runtime image
-├── .env                         # Local dev (not committed — copy from root .env.example)
+├── Dockerfile                   # Multi-stage: build -> runtime image
+├── .env                         # Local dev (not committed — copy from root env.example)
 │
-├── src/                         # ← ALL Python source lives here
-│   ├── main.py                  # FastAPI app factory, CORS, router
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── config.py            # Pydantic Settings (reads .env)
-│   │   └── security.py          # X-API-Key dependency
-│   ├── dbase/                   # Database layer
-│   │   ├── __init__.py
-│   │   └── neo4j/
-│   │       ├── __init__.py
-│   │       └── client.py        # Neo4j driver wrapper (run_query)
-│   ├── library/                 # Reusable internal libraries
-│   │   ├── __init__.py
-│   │   ├── graph/               # Data layer (schema + ingestion)
-│   │   │   ├── __init__.py
-│   │   │   ├── schema.py        # CREATE CONSTRAINT / CREATE INDEX
-│   │   │   ├── parser.py        # PwC JSON → clean entity dicts
-│   │   │   └── ingest.py        # Orchestrate: parse → embed → load
-│   │   └── rag/                 # RAG pipeline
-│   │       ├── __init__.py
-│   │       ├── embedder.py      # OpenAI embedding (single + batch)
-│   │       ├── retriever.py     # Vector search → graph traversal
-│   │       └── generator.py     # Context serialize + LLM call
-│   ├── router.py                # Main API router — endpoint definitions + Pydantic models
-│   └── modules/                 # Feature modules (Handler → UseCase → Service → Repo)
-│       └── {module_name}/       # Example: papers/, methods/, tasks/
-│           ├── __init__.py      # Module docstring
-│           ├── apiv1/
+├── src/
+│   └── graphrag_service/        # <- ALL Python source lives here (proper package)
+│       ├── __init__.py
+│       ├── main.py              # FastAPI app factory, CORS, uvicorn entry points
+│       ├── router.py            # Aggregates module routers: /api/v1/health, /api/v1/graph, /api/v1/rag
+│       │
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── config.py        # Pydantic Settings + get_settings() with @lru_cache
+│       │   ├── auth.py          # X-API-Key dependency (APP_X_API_KEY env var)
+│       │   └── logging.py       # structlog setup, get_logger(__name__)
+│       │
+│       ├── dbase/               # Database layer
+│       │   ├── __init__.py
+│       │   └── neo4j/
+│       │       ├── __init__.py
+│       │       ├── client.py    # Neo4j driver wrapper (run_query)
+│       │       └── models/      # neomodel OGM definitions
+│       │           ├── __init__.py
+│       │           ├── base.py
+│       │           ├── nodes.py
+│       │           └── relationships.py
+│       │
+│       ├── shared/              # Shared utilities and services
+│       │   ├── __init__.py
+│       │   ├── exceptions.py    # Custom exception classes
+│       │   ├── utils/           # Utility functions
+│       │   └── services/        # Shared service classes
+│       │
+│       ├── cli/                 # Typer-based CLI
+│       │   ├── __init__.py
+│       │   ├── base.py          # CLI base setup
+│       │   └── main.py          # CLI entry point (aggregates module commands)
+│       │
+│       └── modules/             # Feature modules (Handler -> UseCase -> Service -> Repository)
+│           ├── __init__.py
+│           ├── health/          # Health check module
 │           │   ├── __init__.py
-│           │   └── handler.py   # FastAPI routes for this module
-│           ├── schemas.py       # Pydantic request/response models
-│           ├── usecase.py       # Orchestration layer (always required)
-│           ├── services.py      # Business logic (add when needed)
-│           └── repositories.py  # Data access (add when needed)
+│           │   └── apiv1/
+│           │       ├── __init__.py
+│           │       └── handler.py
+│           │
+│           ├── graph/           # Graph schema, parsing, ingestion, exploration
+│           │   ├── __init__.py
+│           │   ├── schemas.py       # Pydantic request/response models
+│           │   ├── usecase.py       # Orchestration layer
+│           │   ├── services.py      # Business logic
+│           │   ├── repositories.py  # Data access
+│           │   ├── apiv1/
+│           │   │   ├── __init__.py
+│           │   │   └── handler.py   # FastAPI routes for graph
+│           │   └── cli/
+│           │       ├── __init__.py
+│           │       └── commands.py  # Typer CLI commands for graph
+│           │
+│           └── rag/             # RAG pipeline: embed, retrieve, generate
+│               ├── __init__.py
+│               ├── schemas.py       # Pydantic request/response models
+│               ├── usecase.py       # Orchestration layer
+│               ├── services.py      # Business logic
+│               ├── repositories.py  # Data access
+│               └── apiv1/
+│                   ├── __init__.py
+│                   └── handler.py   # FastAPI routes for RAG
 │
 └── tests/                       # All Python tests
     ├── conftest.py              # Shared fixtures
     ├── unit/                    # Unit tests — mirrors src/ structure
     │   ├── conftest.py
-    │   ├── library/
+    │   ├── modules/
     │   │   ├── rag/
-    │   │   │   ├── test_embedder.py
-    │   │   │   ├── test_retriever.py
-    │   │   │   └── test_generator.py
     │   │   └── graph/
-    │   │       └── test_parser.py
     │   ├── core/
     │   │   └── test_config.py
     │   └── dbase/
     │       └── neo4j/
     │           └── test_client.py
-    ├── integration/             # Integration tests — mirrors src/ structure, real Neo4j
+    ├── integration/             # Integration tests — real Neo4j
     │   ├── conftest.py          # Real Neo4j test client
-    │   └── library/
+    │   └── modules/
     │       └── graph/
-    │           ├── test_schema.py
-    │           ├── test_ingest.py
-    │           └── test_retriever_neo4j.py
     └── e2e/
         ├── query/
-        │   ├── mock/test_query_mock.py
-        │   └── bdd/
-        │       ├── features/query.feature
-        │       └── test_query_bdd.py
         ├── graph/
-        │   ├── mock/test_graph_mock.py
-        │   └── bdd/
-        │       ├── features/graph.feature
-        │       └── test_graph_bdd.py
         └── health/
-            ├── mock/test_health_mock.py
-            └── bdd/
-                ├── features/health.feature
-                └── test_health_bdd.py
 ```
 
-**`src/` is the Python path root.** All imports are relative to `src/`:
+**`graphrag_service` is the Python package root.** All imports use the full package name:
 ```python
-from core.config import settings       # ✅ src/core/config.py
-from library.rag.embedder import embed_text  # ✅ src/library/rag/embedder.py
-from modules.papers.usecase import PapersUseCase  # ✅ src/modules/papers/usecase.py
+from graphrag_service.core.config import get_settings     # config with @lru_cache
+from graphrag_service.core.auth import verify_api_key      # APP_X_API_KEY auth
+from graphrag_service.core.logging import get_logger       # structlog logger
+from graphrag_service.modules.graph.usecase import GraphUseCase
+from graphrag_service.modules.rag.services import RAGService
+from graphrag_service.dbase.neo4j.client import Neo4jClient
+from graphrag_service.dbase.neo4j.models.nodes import Paper
 ```
 
-**Module structure convention** (`src/modules/{name}/`) follows the Handler → UseCase → Service → Repository pattern. See [[projects/graphrag-neo4j/specs/conventions/python-module-structure]] for full detail.
+**Module structure convention** (`modules/{name}/`) follows the Handler -> UseCase -> Service -> Repository pattern. See [[projects/graphrag-neo4j/specs/conventions/python-module-structure]] for full detail.
 
 ### `frontend/` — Independent React App
 
@@ -170,7 +192,11 @@ frontend/
 | --------------------- | ------------------------------------------------ |
 | Runtime               | Python 3.11+                                     |
 | Framework             | FastAPI + Uvicorn                                |
-| Graph + Vector DB     | Neo4j 5.15 Community                             |
+| Graph + Vector DB     | Neo4j 5.x / 6.x Community                       |
+| Neo4j Driver          | neo4j ^6.1.0                                     |
+| OGM                   | neomodel                                         |
+| Logging               | structlog                                        |
+| CLI                   | Typer + Rich                                     |
 | Frontend              | Vite + React + TypeScript + Tailwind + shadcn/ui |
 | LLM                   | OpenAI GPT-4o-mini                               |
 | Embeddings            | OpenAI text-embedding-3-small (1536 dims)        |
@@ -179,67 +205,118 @@ frontend/
 | Data                  | Papers With Code (5k paper subset)               |
 | Dependency Management | Poetry (backend), npm (frontend)                 |
 
+### Key Dependencies (backend)
+
+| Package    | Purpose                          |
+| ---------- | -------------------------------- |
+| neo4j      | Neo4j Bolt driver (^6.1.0)       |
+| neomodel   | Neo4j OGM for node/rel models    |
+| structlog  | Structured logging               |
+| typer      | CLI framework                    |
+| rich       | Terminal formatting              |
+| tqdm       | Progress bars                    |
+| psutil     | System resource monitoring       |
+
 ---
 
 ## Architecture Pattern
 
-`graphrag-neo4j` follows a simplified layered architecture:
+`graphrag-neo4j` follows a proper layered architecture with clear separation of concerns:
 
 ```
-API Routes (router.py)
-    ↓
-Library (library/rag/, library/graph/)
-    ↓
-Neo4j Client (dbase/neo4j/client.py)
-    ↓
+API Handler (modules/{name}/apiv1/handler.py)
+    |
+UseCase (modules/{name}/usecase.py)
+    |
+Service (modules/{name}/services.py)
+    |
+Repository (modules/{name}/repositories.py)
+    |
+Neo4j Client (dbase/neo4j/client.py) + neomodel OGM (dbase/neo4j/models/)
+    |
 Neo4j Database
 ```
 
-Mapping to the general pattern from `sdd-python-service`:
+### Router Aggregation
 
-| General Pattern | graphrag-neo4j Equivalent |
-|----------------|--------------------------|
-| `Handler` | `router.py` — FastAPI endpoints |
-| `UseCase` | `library/rag/retriever.py`, `library/rag/generator.py` — orchestration |
-| `Service` | `library/rag/embedder.py`, `library/graph/parser.py` — business logic |
-| `Repository` | `dbase/neo4j/client.py` — data access |
+`router.py` aggregates all module routers under versioned prefixes:
+
+| Prefix           | Module  | Purpose                              |
+| ---------------- | ------- | ------------------------------------ |
+| `/api/v1/health` | health  | Health check                         |
+| `/api/v1/graph`  | graph   | Graph schema, ingestion, exploration |
+| `/api/v1/rag`    | rag     | RAG query pipeline                   |
+
+### Layer Mapping
+
+| Layer        | Location                              | Responsibility                    |
+| ------------ | ------------------------------------- | --------------------------------- |
+| Handler      | `modules/{name}/apiv1/handler.py`     | FastAPI routes, request/response  |
+| UseCase      | `modules/{name}/usecase.py`           | Orchestration, workflow logic     |
+| Service      | `modules/{name}/services.py`          | Business logic                    |
+| Repository   | `modules/{name}/repositories.py`      | Data access abstraction           |
+| DB Client    | `dbase/neo4j/client.py`               | Neo4j driver wrapper              |
+| OGM Models   | `dbase/neo4j/models/`                 | neomodel node/relationship defs   |
 
 ---
 
 ## Key Patterns
 
-1. **Layered Architecture**: `router.py` → RAG/Graph → Neo4j Client
-2. **Dependency Injection**: `settings` singleton from `core/config.py`
-3. **Graph Pattern**: All data access via parameterized Cypher — never string interpolation
-4. **Immutability**: All transform functions return new dicts, never mutate inputs
-5. **Batch Processing**: OpenAI embeddings in batches of 100, Neo4j writes via `UNWIND`
+1. **Layered Architecture**: Handler -> UseCase -> Service -> Repository -> Neo4j Client/OGM
+2. **Configuration**: `get_settings()` with `@lru_cache` from `core/config.py` (not a bare singleton)
+3. **Authentication**: `core/auth.py` with `APP_X_API_KEY` environment variable
+4. **Structured Logging**: `structlog` via `core/logging.py`, usage: `get_logger(__name__)`
+5. **Graph Pattern**: All data access via parameterized Cypher — never string interpolation
+6. **Immutability**: All transform functions return new dicts, never mutate inputs
+7. **Batch Processing**: OpenAI embeddings in batches of 100, Neo4j writes via `UNWIND`
+8. **CLI per Module**: Each module can expose Typer commands in `modules/{name}/cli/commands.py`
 
 ---
 
 ## Entry Points
 
-| Entry Point | Run From | Command | Purpose |
-|------------|----------|---------|---------|
-| `backend/main.py` | `backend/` | `poetry run uvicorn main:app --reload` | FastAPI dev server |
-| `backend/src/library/graph/schema.py` | `backend/` | `poetry run python src/library/graph/schema.py` | One-time: Neo4j indexes |
-| `backend/src/library/graph/ingest.py` | `backend/` | `poetry run python src/library/graph/ingest.py` | One-time: embed + load data |
-| `data/download.sh` | repo root | `bash data/download.sh` | Download PwC JSON dumps |
-| `frontend/` | `frontend/` | `npm run dev` | Vite dev server |
-| `docker-compose.yml` | repo root | `docker compose up --build` | Full stack via Docker |
+| Entry Point | Command | Purpose |
+|------------|---------|---------|
+| FastAPI server | `poetry run start` | Uvicorn production server (port 8005) |
+| FastAPI dev server | `poetry run dev` | Uvicorn with reload (port 8005) |
+| Typer CLI | `poetry run cli` | CLI commands (graph ingestion, etc.) |
+| Makefile (backend) | `make backend` | Start backend via Makefile |
+| Makefile (frontend) | `make frontend` | Start frontend via Makefile |
+| Makefile (all) | `make dev` | Start full stack via Makefile |
+| Frontend dev | `npm run dev` (in `frontend/`) | Vite dev server (port 5173) |
+| Docker Compose | `docker compose -f docker/docker-compose.dev.yml up --build` | Full stack via Docker |
+
+### Poetry Script Definitions (pyproject.toml)
+
+```toml
+[tool.poetry.scripts]
+start = "graphrag_service.main:main"
+dev = "graphrag_service.main:dev"
+cli = "graphrag_service.cli.main:main"
+```
+
+### Package Configuration (pyproject.toml)
+
+```toml
+[tool.poetry]
+packages = [{include = "graphrag_service", from = "src"}]
+```
 
 ---
 
 ## Environment Variables
 
-| Prefix | Usage |
-|--------|-------|
-| `NEO4J_*` | Neo4j connection (URI, USER, PASSWORD) |
-| `OPENAI_*` | OpenAI API key |
-| `APP_*` | Application settings (ENV, LOG_LEVEL) |
-| `ALLOWED_ORIGINS` | CORS allowed origins |
-| `VITE_*` | Frontend environment variables (Vite-only) |
+| Prefix       | Usage                                            |
+| ------------ | ------------------------------------------------ |
+| `NEO4J_*`    | Neo4j connection (URI, USER, PASSWORD)           |
+| `OPENAI_*`   | OpenAI API key                                   |
+| `APP_*`      | Application settings (ENV, LOG_LEVEL, X_API_KEY) |
+| `ALLOWED_ORIGINS` | CORS allowed origins                        |
+| `VITE_*`     | Frontend environment variables (Vite-only)       |
 
-See `specs/system.md` for full env var reference and `.env.example` for template.
+The env template is at the repo root: `env.example` (not `.env.example`).
+
+See `specs/system.md` for full env var reference.
 
 ---
 
@@ -257,7 +334,7 @@ cd ../frontend
 npm install
 
 # 3. Copy and fill env files
-cp .env.example backend/.env         # Fill: NEO4J_PASSWORD, OPENAI_API_KEY, API_KEY
+cp env.example backend/.env         # Fill: NEO4J_PASSWORD, OPENAI_API_KEY, APP_X_API_KEY
 cp frontend/.env.example frontend/.env  # Fill: VITE_API_URL, VITE_API_KEY
 ```
 
@@ -265,32 +342,32 @@ cp frontend/.env.example frontend/.env  # Fill: VITE_API_URL, VITE_API_KEY
 
 ```bash
 # 4. Start Neo4j container
-docker compose up neo4j -d
+docker compose -f docker/docker-compose.dev.yml up neo4j -d
 
-# 5. Create indexes (from backend/)
-cd backend && poetry run python src/library/graph/schema.py
-
-# 6. Download PwC data
+# 5. Download PwC data
 bash data/download.sh
 
-# 7. Ingest data into Neo4j (~30 min for 5k papers)
-cd backend && poetry run python src/library/graph/ingest.py
+# 6. Ingest data into Neo4j via CLI
+cd backend && poetry run cli graph ingest
 ```
 
 ### Daily development
 
 ```bash
-# Backend hot-reload (from backend/)
-cd backend && poetry run uvicorn main:app --reload --port 8000
+# Backend with hot-reload (from backend/)
+cd backend && poetry run dev        # -> http://localhost:8005
 
 # Frontend dev server (from frontend/)
-cd frontend && npm run dev     # → http://localhost:5173
+cd frontend && npm run dev          # -> http://localhost:5173
 
 # Run backend tests (from backend/)
 cd backend && poetry run pytest tests/ -v
 
+# OR: use Makefile from repo root
+make dev                            # Start full stack
+
 # OR: start everything via Docker Compose
-docker compose up --build
+docker compose -f docker/docker-compose.dev.yml up --build
 ```
 
 ---
@@ -330,11 +407,11 @@ The following is the upstream `fastapi-service` template overview for reference:
 ### Template Structure
 
 ```
-src/fastapi_service/
+src/graphrag_service/              # Was src/fastapi_service/ in the template
 ├── core/                   # Core functionality
-│   ├── config.py          # Configuration (Pydantic Settings)
-│   ├── logging.py         # Structured logging setup
-│   ├── auth.py            # Authentication
+│   ├── config.py          # Configuration (Pydantic Settings + @lru_cache)
+│   ├── logging.py         # Structured logging setup (structlog)
+│   ├── auth.py            # Authentication (X-API-Key)
 │   └── dependencies.py    # FastAPI dependencies
 ├── modules/                # Feature modules
 │   ├── health/
@@ -344,19 +421,28 @@ src/fastapi_service/
 │       ├── services.py
 │       ├── repositories.py
 │       ├── schemas.py
+│       ├── cli/commands.py # Typer CLI commands (optional)
 │       └── tasks.py       # Celery tasks (optional)
-├── dbase/                 # Database layer (PostgreSQL)
+├── dbase/                 # Database layer (Neo4j in graphrag-neo4j)
+│   └── neo4j/
+│       ├── client.py
+│       └── models/        # neomodel OGM
 ├── shared/                # Shared utilities
 │   ├── exceptions.py
-│   └── utils/
+│   ├── utils/
+│   └── services/
+├── cli/                   # Typer CLI entry point
+│   ├── base.py
+│   └── main.py
 ├── main.py
 ├── router.py
-└── worker.py              # Celery worker
+└── worker.py              # Celery worker (not used in graphrag-neo4j)
 ```
 
 ### Key Files to Reference
 
-- `pyproject.toml` — Poetry dependencies and scripts
+- `pyproject.toml` — Poetry dependencies, scripts (`start`, `dev`, `cli`), and package config
 - `Makefile` — Development and deployment commands
-- `src/fastapi_service/main.py` — Application entry point
-- `src/fastapi_service/router.py` — API router
+- `src/graphrag_service/main.py` — Application entry point
+- `src/graphrag_service/router.py` — API router (aggregates `/api/v1/health`, `/api/v1/graph`, `/api/v1/rag`)
+- `src/graphrag_service/cli/main.py` — Typer CLI entry point

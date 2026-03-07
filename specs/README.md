@@ -15,9 +15,10 @@ specs/
 │   ├── python-conventions.md        ← PEP 8, type hints, naming, imports, error handling
 │   ├── python-module-structure.md   ← Module layering (Handler → UseCase → Service → Repo)
 │   ├── testing.md                   ← Test structure: units / integrations / e2e mock / BDD
-│   └── security.md                  ← X-API-Key authentication, timing safety, CORS
+│   └── security.md                  ← X-API-Key authentication, CORS
 ├── backend/
-│   ├── graph.md         ← Neo4j schema, Cypher patterns, constraints, vector indexes
+│   ├── neo4j-models.md  ← neomodel OGM: BaseNode, StructuredNode, VectorIndex, repositories
+│   ├── graph.md         ← Neo4j schema, neomodel models, constraints, vector indexes
 │   ├── ingestion.md     ← Data ingestion: PwC JSON → parse → embed → load to Neo4j
 │   ├── rag.md           ← RAG pipeline: embed query → vector search → traversal → LLM answer
 │   └── api.md           ← FastAPI routes, Pydantic models, error handling, CORS
@@ -43,18 +44,19 @@ specs/
 | Topic | Spec | Key Files |
 |-------|------|-----------|
 | **Conventions** | | |
-| Repo layout & workflow | `conventions/repository-overview.md` | `pyproject.toml`, `docker-compose.yml` |
-| Python style & patterns | `conventions/python-conventions.md` | All `.py` files |
-| Module layering | `conventions/python-module-structure.md` | `library/rag/`, `library/graph/`, `modules/` |
+| Repo layout & workflow | `conventions/repository-overview.md` | `pyproject.toml`, `docker/docker-compose.dev.yml`, `Makefile` |
+| Python style & patterns | `conventions/python-conventions.md` | All `.py` files in `graphrag_service/` |
+| Module layering | `conventions/python-module-structure.md` | `graphrag_service/modules/graph/`, `graphrag_service/modules/rag/` |
 | Tests | `conventions/testing.md` | `tests/unit/`, `tests/integration/`, `tests/e2e/*/bdd/` |
-| Security (X-API-Key) | `conventions/security.md` | `core/security.py` |
+| Security (X-API-Key) | `conventions/security.md` | `graphrag_service/core/auth.py` |
 | **System** | | |
-| System-wide | `system.md` | `.env`, `docker-compose.yml`, `main.py` |
+| System-wide | `system.md` | `env.example`, `docker/docker-compose.dev.yml`, `graphrag_service/main.py` |
 | **Backend** | | |
-| Neo4j Graph | `backend/graph.md` | `library/graph/schema.py`, `library/graph/parser.py` |
-| Ingestion | `backend/ingestion.md` | `library/graph/ingest.py` |
-| RAG | `backend/rag.md` | `library/rag/embedder.py`, `library/rag/retriever.py`, `library/rag/generator.py` |
-| API | `backend/api.md` | `router.py`, `main.py` |
+| Neo4j Models (neomodel) | `backend/neo4j-models.md` | `graphrag_service/dbase/neo4j/models/`, `graphrag_service/dbase/neo4j/client.py` |
+| Neo4j Graph | `backend/graph.md` | `graphrag_service/modules/graph/services.py`, `graphrag_service/modules/graph/repositories.py` |
+| Ingestion | `backend/ingestion.md` | `graphrag_service/modules/graph/services.py` (ingest_nodes, ingest_relationships) |
+| RAG | `backend/rag.md` | `graphrag_service/modules/rag/services.py`, `graphrag_service/modules/rag/repositories.py` |
+| API | `backend/api.md` | `graphrag_service/router.py`, `graphrag_service/main.py` |
 | **Frontend** | | |
 | Components | `frontend/components.md` | `src/components/` |
 | State | `frontend/state.md` | `src/App.tsx` |

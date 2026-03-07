@@ -1,0 +1,3 @@
+# Configure Poetry to create .venv in project directory
+[virtualenvs]
+in-project = true

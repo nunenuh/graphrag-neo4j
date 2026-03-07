@@ -1,0 +1,76 @@
+"""
+Graph service — orchestrates library calls for parsing and data preparation.
+
+Does NOT access the database. Uses library/ for reusable logic.
+"""
+
+import json
+from pathlib import Path
+from typing import Iterator
+
+from graphrag_service.core.config import get_settings
+from graphrag_service.core.logging import get_logger
+from graphrag_service.library.llm import embed_batch
+from graphrag_service.library.parsers import (
+    iter_datasets,
+    iter_methods,
+    iter_papers,
+    iter_tasks,
+    load_json,
+)
+
+logger = get_logger(__name__)
+
+
+class GraphService:
+    """Service for data parsing and preparation. Does NOT access the database."""
+
+    @staticmethod
+    def data_dir() -> Path:
+        """Resolve the data directory path."""
+        settings = get_settings()
+        path = Path(settings.DATA_DIR)
+        if path.is_absolute():
+            return path
+        return Path(__file__).parent.parent.parent.parent.parent / settings.DATA_DIR
+
+    def load_papers(self) -> Iterator[dict]:
+        """Load and parse papers using library functions."""
+        settings = get_settings()
+        data = load_json(self.data_dir() / "papers.json")
+        return iter_papers(data, max_papers=settings.MAX_PAPERS)
+
+    def load_methods(self) -> Iterator[dict]:
+        """Load and parse methods using library functions."""
+        data = load_json(self.data_dir() / "methods.json")
+        return iter_methods(data)
+
+    def load_tasks(self) -> Iterator[dict]:
+        """Load and parse tasks using library functions."""
+        data = load_json(self.data_dir() / "tasks.json")
+        return iter_tasks(data)
+
+    def load_datasets(self) -> Iterator[dict]:
+        """Load and parse datasets using library functions."""
+        data = load_json(self.data_dir() / "datasets.json")
+        return iter_datasets(data)
+
+    def load_evaluations(self) -> list:
+        """Load evaluation data from JSON."""
+        eval_path = self.data_dir() / "evaluations.json"
+        with open(eval_path, encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def prepare_embed_texts(nodes: list[dict]) -> list[str]:
+        """Prepare text strings for embedding from node dicts."""
+        return [
+            f"{n.get('title', n.get('name', ''))} "
+            f"{n.get('abstract', n.get('description', ''))}"
+            for n in nodes
+        ]
+
+    @staticmethod
+    def embed_nodes(texts: list[str]) -> list[list[float]]:
+        """Embed a batch of texts using library/llm."""
+        return embed_batch(texts)

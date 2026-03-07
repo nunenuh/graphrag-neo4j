@@ -1,6 +1,6 @@
 # Backend Spec: Ingestion Pipeline
 
-File: `backend/src/library/graph/ingest.py`
+File: `backend/src/graphrag_service/modules/graph/services.py` (`GraphService.ingest_nodes`, `GraphService.ingest_relationships`)
 
 See also: [[projects/graphrag-neo4j/specs/backend/graph]] · [[projects/graphrag-neo4j/specs/backend/rag]]
 
@@ -8,223 +8,205 @@ See also: [[projects/graphrag-neo4j/specs/backend/graph]] · [[projects/graphrag
 
 ## Responsibility
 
-`ingest.py` **orchestrates** the full ingestion pipeline:
+`GraphService` **orchestrates** the full ingestion pipeline:
 
 ```
 PwC JSON files
-    → parser.py      (parse raw JSON → entity dicts)
-    → embedder.py    (batch embed via OpenAI)
-    → dbase/neo4j/client   (MERGE nodes + SET embedding + create relationships)
+    -> GraphService static iterators   (parse raw JSON -> entity dicts)
+    -> EmbedderService.embed_batch()   (batch embed via OpenAI, from modules/rag/services.py)
+    -> NodeRepository.upsert_batch()   (MERGE nodes + SET embedding)
+    -> NodeRepository.merge_*()        (create relationships)
 ```
 
-`ingest.py` calls helpers — it does not contain parsing or embedding logic itself.
+Parsing and ingestion live in the same `GraphService` class. Embedding is delegated to `EmbedderService` from `modules/rag/services.py`.
 
 ---
 
 ## Pipeline Phases
 
-### Phase 1: Parse
+### Phase 1: Ingest Nodes (`GraphService.ingest_nodes`)
 
-Parse all 4 entity types from PwC JSON files.
+Iterates over all four entity types, embeds in batches, and upserts to Neo4j.
 
 ```python
-from pathlib import Path
-from library.graph.parser import parse_papers, parse_methods, parse_tasks, parse_datasets, parse_relationships
+def ingest_nodes(self, embed_batch_fn) -> None:
+    """Ingest all entity types into Neo4j with embeddings."""
+    settings = get_settings()
+    batch_size = settings.INGEST_BATCH_SIZE
 
-DATA_DIR = Path("data/")
-
-papers = list(parse_papers(DATA_DIR / "papers.json"))
-methods = list(parse_methods(DATA_DIR / "methods.json"))
-tasks = list(parse_tasks(DATA_DIR / "tasks.json"))
-datasets = list(parse_datasets(DATA_DIR / "datasets.json"))
-relationships = list(parse_relationships(DATA_DIR / "evaluations.json"))
+    for model, iter_name in NODE_MODEL_ITERATORS:
+        iterator = getattr(self, iter_name)
+        batch: list[dict] = []
+        for node in tqdm(iterator(), desc=model.__label__):
+            batch.append(node)
+            if len(batch) == batch_size:
+                texts = [
+                    f"{n.get('title', n.get('name', ''))} "
+                    f"{n.get('abstract', n.get('description', ''))}"
+                    for n in batch
+                ]
+                embeddings = embed_batch_fn(texts)
+                self.node_repo.upsert_batch(model, batch, embeddings)
+                batch = []
+        if batch:
+            texts = [
+                f"{n.get('title', n.get('name', ''))} "
+                f"{n.get('abstract', n.get('description', ''))}"
+                for n in batch
+            ]
+            embeddings = embed_batch_fn(texts)
+            self.node_repo.upsert_batch(model, batch, embeddings)
 ```
 
-### Phase 2: Embed
+The `embed_batch_fn` argument is `EmbedderService.embed_batch` from `modules/rag/services.py`.
 
-Embed each entity type using the text that best represents it.
+**Model iterator mapping:**
+
+| Model | Iterator | Source file |
+|-------|----------|-------------|
+| `Paper` | `iter_papers()` | `papers.json` |
+| `Method` | `iter_methods()` | `methods.json` |
+| `Task` | `iter_tasks()` | `tasks.json` |
+| `Dataset` | `iter_datasets()` | `datasets.json` |
+
+**Embedding text per entity type:**
 
 | Entity | Text to embed |
 |--------|--------------|
-| `:Paper` | `f"{title}. {abstract}"` |
-| `:Method` | `f"{name}. {description}"` |
-| `:Task` | `f"{name}. {description}"` |
-| `:Dataset` | `f"{name}. {description}"` |
+| `:Paper` | `f"{title} {abstract}"` |
+| `:Method` | `f"{name} {description}"` |
+| `:Task` | `f"{name} {description}"` |
+| `:Dataset` | `f"{name} {description}"` |
 
-Use `embedder.batch_embed()` — never embed one by one in a loop.
+### Phase 2: Ingest Relationships (`GraphService.ingest_relationships`)
+
+Relationships are loaded from `evaluations.json` in the PwC archive format: `task -> datasets -> sota -> rows`.
 
 ```python
-from library.rag.embedder import batch_embed
+def ingest_relationships(self) -> None:
+    """Load relationships from evaluation tables (pwc-archive format)."""
+    eval_path = self._data_dir() / "evaluations.json"
+    with open(eval_path) as f:
+        evals = json.load(f)
 
-paper_texts = [f"{p['title']}. {p['abstract']}" for p in papers]
-paper_embeddings = batch_embed(paper_texts)  # list[list[float]]
+    for ev in tqdm(evals, desc="Relationships"):
+        task_name = ev.get("task", "")
+        if not task_name:
+            continue
 
-# Zip back into entity dicts (immutable — create new dicts)
-papers_with_embeddings = [
-    {**paper, "embedding": emb}
-    for paper, emb in zip(papers, paper_embeddings)
+        for ds_entry in ev.get("datasets", []):
+            dataset_name = ds_entry.get("dataset", "")
+            if not dataset_name:
+                continue
+
+            self.node_repo.merge_used_for(dataset_name, task_name)
+
+            for row in (ds_entry.get("sota", {}).get("rows", []))[:5]:
+                method_name = row.get("model_name", "")
+                if not method_name:
+                    continue
+                metrics = row.get("metrics", {})
+                for metric_name, metric_value in metrics.items():
+                    self.node_repo.merge_evaluated_on(
+                        method_name=method_name,
+                        dataset_name=dataset_name,
+                        metric=metric_name,
+                        score=str(metric_value),
+                    )
+```
+
+**PwC archive `evaluations.json` format:**
+
+```json
+[
+  {
+    "task": "Image Classification",
+    "datasets": [
+      {
+        "dataset": "ImageNet",
+        "sota": {
+          "rows": [
+            {
+              "model_name": "ViT-H/14",
+              "metrics": {
+                "Top 1 Accuracy": "88.55",
+                "Top 5 Accuracy": "98.64"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
 ]
 ```
 
-### Phase 3: Load Nodes
+**Relationship types created:**
 
-Load each entity type to Neo4j using MERGE + SET.
+| Relationship | Method | From -> To |
+|-------------|--------|-----------|
+| `USED_FOR` | `NodeRepository.merge_used_for()` | `:Dataset` -> `:Task` |
+| `EVALUATED_ON` | `NodeRepository.merge_evaluated_on()` | `:Method` -> `:Dataset` (with `metric`, `score` properties) |
+
+---
+
+## Batch Upsert (`NodeRepository.upsert_batch`)
+
+Handles batch MERGE with dynamic Cypher generation from neomodel model definitions.
 
 ```python
-from dbase.neo4j.client import Neo4jClient
-
-def load_papers(client: Neo4jClient, papers: list[dict]) -> None:
-    """Load Paper nodes with embeddings into Neo4j."""
-    cypher = """
-    UNWIND $papers AS p
-    MERGE (n:Paper {id: p.id})
-    SET n.title = p.title,
-        n.abstract = p.abstract,
-        n.url = p.url,
-        n.year = p.year,
-        n.embedding = p.embedding
-    """
-    client.run_query(cypher, {"papers": papers})
-    logger.info(f"Loaded {len(papers)} Paper nodes")
+def upsert_batch(
+    self,
+    model: type[StructuredNode],
+    nodes: list[dict],
+    embeddings: list[list[float]],
+) -> None:
+    """Batch upsert nodes with embeddings using raw Cypher MERGE."""
+    records = [{**node, "embedding": emb} for node, emb in zip(nodes, embeddings)]
+    cypher = _get_upsert_cypher(model)
+    self._client.run_query(cypher, {"rows": records})
 ```
 
-Use `UNWIND $batch AS item` to batch-load — one query per entity type, not one query per record.
-
-### Phase 4: Load Relationships
-
-After all nodes are loaded, create relationships.
+The Cypher template is built dynamically by introspecting the neomodel class properties:
 
 ```python
-def load_relationships(client: Neo4jClient, relationships: list[dict]) -> None:
-    """Create all relationships from evaluations data."""
-    # INTRODUCES: Paper → Method
-    cypher_introduces = """
-    UNWIND $rels AS r
-    MATCH (p:Paper {id: r.paper_id})
-    MATCH (m:Method {id: r.method_id})
-    WHERE r.method_id <> ''
-    MERGE (p)-[:INTRODUCES]->(m)
-    """
-    client.run_query(cypher_introduces, {"rels": relationships})
-
-    # EVALUATED_ON: Paper → Dataset (with metric/score)
-    cypher_evaluated = """
-    UNWIND $rels AS r
-    MATCH (p:Paper {id: r.paper_id})
-    MATCH (d:Dataset {id: r.dataset_id})
-    MERGE (p)-[rel:EVALUATED_ON]->(d)
-    SET rel.metric = r.metric, rel.score = r.score
-    """
-    client.run_query(cypher_evaluated, {"rels": relationships})
-
-    # ADDRESSES: Paper → Task
-    cypher_addresses = """
-    UNWIND $rels AS r
-    MATCH (p:Paper {id: r.paper_id})
-    MATCH (t:Task {id: r.task_id})
-    MERGE (p)-[:ADDRESSES]->(t)
-    """
-    client.run_query(cypher_addresses, {"rels": relationships})
+def _get_upsert_cypher(model: type[StructuredNode]) -> str:
+    label = model.__label__
+    props = [k for k, v in model.defined_properties(aliases=False, rels=False).items()]
+    set_parts = [f"n.{p} = row.{p}" for p in props]
+    set_parts.append("n.embedding = row.embedding")
+    set_clause = ", ".join(set_parts)
+    return (
+        f"UNWIND $rows AS row "
+        f"MERGE (n:{label} {{uid: row.uid}}) "
+        f"SET {set_clause}"
+    )
 ```
 
 ---
 
-## Full Orchestration
+## CLI
 
-```python
-"""
-library/graph/ingest.py
-
-Orchestrates: parse → embed → load nodes → load relationships.
-Run once: python src/library/graph/ingest.py
-Expected duration: ~30 minutes for 5k papers (OpenAI rate limits).
-"""
-import logging
-import time
-from pathlib import Path
-
-from core.config import settings
-from dbase.neo4j.client import Neo4jClient
-from library.graph.parser import (
-    parse_datasets, parse_methods, parse_papers,
-    parse_relationships, parse_tasks,
-)
-from library.rag.embedder import batch_embed
-
-logger = logging.getLogger(__name__)
-DATA_DIR = Path("data/")
-
-
-def run_ingestion() -> None:
-    """Run the full ingestion pipeline."""
-    client = Neo4jClient(settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password)
-    start = time.time()
-
-    # --- Parse ---
-    logger.info("Parsing PwC JSON files...")
-    papers = list(parse_papers(DATA_DIR / "papers.json"))
-    methods = list(parse_methods(DATA_DIR / "methods.json"))
-    tasks = list(parse_tasks(DATA_DIR / "tasks.json"))
-    datasets = list(parse_datasets(DATA_DIR / "datasets.json"))
-    relationships = list(parse_relationships(DATA_DIR / "evaluations.json"))
-    logger.info(f"Parsed: {len(papers)} papers, {len(methods)} methods, "
-                f"{len(tasks)} tasks, {len(datasets)} datasets")
-
-    # --- Embed ---
-    logger.info("Embedding entities (this takes ~20-25 min for 5k papers)...")
-    papers = _attach_embeddings(papers, [f"{p['title']}. {p['abstract']}" for p in papers])
-    methods = _attach_embeddings(methods, [f"{m['name']}. {m['description']}" for m in methods])
-    tasks = _attach_embeddings(tasks, [f"{t['name']}. {t['description']}" for t in tasks])
-    datasets = _attach_embeddings(datasets, [f"{d['name']}. {d['description']}" for d in datasets])
-
-    # --- Load Nodes ---
-    logger.info("Loading nodes to Neo4j...")
-    load_papers(client, papers)
-    load_methods(client, methods)
-    load_tasks(client, tasks)
-    load_datasets(client, datasets)
-
-    # --- Load Relationships ---
-    logger.info("Loading relationships to Neo4j...")
-    load_relationships(client, relationships)
-
-    elapsed = time.time() - start
-    logger.info(f"Ingestion complete in {elapsed:.0f}s")
-
-
-def _attach_embeddings(entities: list[dict], texts: list[str]) -> list[dict]:
-    """Return new entity dicts with 'embedding' field attached."""
-    embeddings = batch_embed(texts)
-    return [{**entity, "embedding": emb} for entity, emb in zip(entities, embeddings)]
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    run_ingestion()
+```bash
+poetry run cli graph ingest
 ```
 
 ---
 
 ## Batching Rules
 
+**Batch size:**
+- Configurable via `INGEST_BATCH_SIZE` env var (default 50)
+- Each batch is embedded and upserted as a single operation
+- Uses `tqdm` for progress bars on all entity types and relationships
+
 **OpenAI embedding API limits:**
-- `batch_size = 100` texts per API call
-- Respect rate limits — see `library/rag/embedder.py` for retry/backoff logic
-- Log progress every batch: `logger.info(f"Embedded batch {i}/{total_batches}")`
+- `EmbedderService.embed_batch()` handles internal batching at 100 texts per API call
+- Retry/backoff logic handled in `EmbedderService`
 
-**Neo4j write limits:**
-- Use `UNWIND $list` for bulk writes — one Cypher call per entity type
-- Do NOT write one node per query (too slow for 5k+ records)
-- Recommended Neo4j batch size: 500 nodes per `UNWIND` call (split list if needed)
-
-```python
-def _batch_write(client: Neo4jClient, cypher: str, items: list[dict], batch_size: int = 500) -> None:
-    """Write items to Neo4j in batches."""
-    for i in range(0, len(items), batch_size):
-        batch = items[i : i + batch_size]
-        client.run_query(cypher, {"items": batch})
-        logger.info(f"Wrote batch {i // batch_size + 1} ({len(batch)} items)")
-```
+**Neo4j write:**
+- Uses `UNWIND $rows` for bulk writes — one Cypher call per batch
+- Do NOT write one node per query (too slow for large datasets)
 
 ---
 
@@ -232,10 +214,9 @@ def _batch_write(client: Neo4jClient, cypher: str, items: list[dict], batch_size
 
 | Error | Action |
 |-------|--------|
-| OpenAI `RateLimitError` | Retry with exponential backoff (handled in `embedder.py`) |
-| OpenAI `APIError` | Log + raise — stop ingestion, don't partial-load |
-| Neo4j `ServiceUnavailable` | Retry 3 times with 5s sleep, then raise |
-| Missing JSON field | Skip record, log warning, continue |
+| OpenAI `Exception` | Raises `OpenAIException` — stops ingestion |
+| Neo4j write failure | Raises `RepositoryException` with label context |
+| Missing required field | Skip record, continue (handled in iterator logic) |
 | `json.JSONDecodeError` | Raise immediately — file is corrupt |
 
 **Ingestion is idempotent**: MERGE means re-running will update rather than duplicate nodes.
@@ -253,5 +234,3 @@ MATCH (t:Task) RETURN count(t) AS tasks
 MATCH (d:Dataset) RETURN count(d) AS datasets
 MATCH ()-[r]->() RETURN count(r) AS relationships
 ```
-
-Expected (5k paper subset): ~5000 papers, ~1000+ methods, ~200+ tasks, ~400+ datasets, ~10k+ relationships.

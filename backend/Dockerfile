@@ -1,6 +1,19 @@
 FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_NO_INTERACTION=1
+
 WORKDIR /app
-COPY pyproject.toml .
-RUN pip install poetry && poetry install --no-root
+
+RUN pip install --no-cache-dir poetry
+
+COPY pyproject.toml poetry.lock* ./
+RUN poetry install --only main --no-root --no-cache
+
 COPY . .
-CMD ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--app-dir", "src"]
+
+EXPOSE 8005
+
+CMD ["poetry", "run", "start"]

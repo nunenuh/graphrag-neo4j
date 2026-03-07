@@ -10,10 +10,14 @@ Root is minimal — only infrastructure files. Each service is fully independent
 
 ```
 graphrag-neo4j/                  # Repo root
-├── docker-compose.yml
-├── .env.example                 # Template for backend secrets
+├── Makefile                     # Project commands (make help)
+├── env.example                  # Template for root-level secrets
+├── .env                         # NOT committed — copy from env.example
 ├── .gitignore
 ├── README.md
+├── docker/                      # Docker Compose files
+│   ├── docker-compose.dev.yml   # Development stack (Neo4j + backend + frontend)
+│   └── docker-compose.run.yml   # Production stack (optional)
 └── data/                        # PwC data — mounted into backend container
     ├── download.sh
     ├── papers.json
@@ -23,55 +27,103 @@ graphrag-neo4j/                  # Repo root
     └── evaluations.json
 
 backend/                         # Independent Python service
-├── pyproject.toml               # Poetry: deps + tool config (pythonpath = ["src"])
+├── pyproject.toml               # Poetry: deps + tool config
+├── poetry.toml                  # Poetry local config (in-project venv)
 ├── poetry.lock
 ├── Dockerfile
-├── .env                         # NOT committed — copy from root .env.example
 │
-├── src/                         # ← All Python source (Python path root)
-│   ├── main.py                  # FastAPI app factory
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   └── security.py
-│   ├── dbase/                   # Database layer
-│   │   ├── __init__.py
-│   │   └── neo4j/
-│   │       ├── __init__.py
-│   │       └── client.py        # Neo4j driver wrapper
-│   ├── library/                 # Reusable internal libraries
-│   │   ├── __init__.py
-│   │   ├── graph/
-│   │   │   ├── __init__.py
-│   │   │   ├── schema.py
-│   │   │   ├── parser.py
-│   │   │   └── ingest.py
-│   │   └── rag/
-│   │       ├── __init__.py
-│   │       ├── embedder.py
-│   │       ├── retriever.py
-│   │       └── generator.py
-│   ├── router.py                # Main API router — endpoint definitions + Pydantic models
-│   └── modules/                 # Feature modules (Handler → UseCase → Service → Repo)
-│       └── {module_name}/       # e.g. papers/, methods/, tasks/
+├── src/                         # Python source root
+│   └── graphrag_service/        # ← Main package (Poetry: packages = [{include = "graphrag_service", from = "src"}])
+│       ├── __init__.py
+│       ├── main.py              # FastAPI app factory (create_app)
+│       ├── router.py            # Aggregates module routers under /api/v1/
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── config.py        # Pydantic Settings (get_settings with lru_cache)
+│       │   ├── auth.py          # X-API-Key dependency
+│       │   ├── logging.py       # structlog setup
+│       │   └── dependencies.py  # FastAPI deps (Neo4j client lifecycle)
+│       ├── dbase/               # Database layer
+│       │   ├── __init__.py
+│       │   └── neo4j/
+│       │       ├── __init__.py
+│       │       ├── client.py    # Neo4j client via neomodel
+│       │       └── models/
+│       │           ├── __init__.py      # Re-exports all models (neomodel registry)
+│       │           ├── base.py          # Abstract BaseNode (uid + created_at)
+│       │           ├── nodes.py         # Paper, Method, Task, Dataset
+│       │           └── relationships.py # UsedForRel, EvaluatedOnRel
+│       ├── library/             # Reusable logic (can use frameworks, not tied to modules/DB)
+│       │   ├── __init__.py
+│       │   ├── parsers.py       # JSON data parsing (iter_papers, iter_methods, etc.)
+│       │   ├── generator.py     # Context formatting and prompt building
+│       │   ├── llm/             # LangChain-based LLM abstraction (provider-agnostic)
+│       │   │   ├── __init__.py  # Re-exports: get_chat_model, get_embeddings, generate, embed_*
+│       │   │   ├── providers.py # Provider factory (OpenAI, Gemini, Ollama, Qwen)
+│       │   │   ├── chat.py      # Chat model wrapper (generate with prompt)
+│       │   │   └── embeddings.py # Embedding wrapper (embed_text, embed_batch)
+│       │   └── graph/           # LangGraph workflow definitions
+│       │       ├── __init__.py  # Re-exports: run_rag_pipeline
+│       │       └── rag_pipeline.py # RAG pipeline as LangGraph StateGraph
+│       ├── shared/              # Cross-module shared concerns
+│       │   ├── __init__.py
+│       │   ├── exceptions.py    # Exception hierarchy
+│       │   ├── utils/
+│       │   │   └── __init__.py
+│       │   ├── services/        # Shared services (used by multiple modules)
+│       │   │   └── __init__.py
+│       │   └── repositories/    # Shared repositories (used by multiple modules)
+│       │       └── __init__.py
+│       ├── modules/             # Feature modules (Handler → UseCase → Service → Repo)
+│       │   ├── __init__.py
+│       │   ├── health/          # Health check module
+│       │   │   ├── __init__.py
+│       │   │   ├── schemas.py
+│       │   │   ├── services.py
+│       │   │   ├── usecase.py
+│       │   │   ├── apiv1/
+│       │   │   │   ├── __init__.py
+│       │   │   │   └── handler.py
+│       │   │   └── cli/
+│       │   │       ├── __init__.py
+│       │   │       └── commands.py
+│       │   ├── graph/           # Graph schema, parsing, ingestion, exploration
+│       │   │   ├── __init__.py
+│       │   │   ├── schemas.py
+│       │   │   ├── services.py      # Orchestrates library calls (parsing, embedding)
+│       │   │   ├── repositories.py  # DB operations (schema install, node upsert, explore)
+│       │   │   ├── usecase.py       # Orchestrates service + repository
+│       │   │   ├── apiv1/
+│       │   │   │   ├── __init__.py
+│       │   │   │   └── handler.py
+│       │   │   └── cli/
+│       │   │       ├── __init__.py
+│       │   │       └── commands.py  # graph schema, graph ingest, graph status
+│       │   └── rag/             # RAG pipeline: embed, retrieve, generate
+│       │       ├── __init__.py
+│       │       ├── schemas.py
+│       │       ├── services.py      # Orchestrates library calls (embed, generate)
+│       │       ├── repositories.py  # DB operations (vector search, traversal)
+│       │       ├── usecase.py       # Orchestrates service + repository
+│       │       └── apiv1/
+│       │           ├── __init__.py
+│       │           └── handler.py
+│       └── cli/                 # Typer-based CLI
 │           ├── __init__.py
-│           ├── apiv1/
-│           │   ├── __init__.py
-│           │   └── handler.py
-│           ├── schemas.py
-│           ├── usecase.py
-│           ├── services.py      # When business logic needed
-│           └── repositories.py  # When DB access needed
+│           ├── base.py          # Rich console setup
+│           └── main.py          # CLI entry point, registers module commands
 │
 └── tests/                       # All Python tests — inside backend/
     ├── conftest.py
-    ├── unit/                    # Mirrors src/ — mocked deps
-    │   ├── library/rag/
-    │   ├── library/graph/
+    ├── unit/
+    │   ├── conftest.py
+    │   ├── modules/
+    │   │   ├── graph/
+    │   │   └── rag/
     │   ├── core/
     │   └── dbase/neo4j/
-    ├── integration/             # Mirrors src/ — real Neo4j test DB
-    │   └── library/graph/
+    ├── integration/
+    │   └── modules/graph/
     └── e2e/
         └── {feature}/
             ├── mock/
@@ -83,7 +135,7 @@ frontend/                        # Independent React app
 ├── package-lock.json
 ├── Dockerfile
 ├── .env                         # VITE_* vars (NOT committed)
-├── .env.example                 # Template (committed)
+├── .env.example
 ├── index.html
 ├── vite.config.ts
 ├── tsconfig.json
@@ -105,38 +157,65 @@ frontend/                        # Independent React app
 
 ## Environment Variables
 
-**Three separate env files — never mix them.**
+**Two env files — root `.env` serves both Docker and backend.**
 
 | File | Where | Purpose | Committed? |
 |------|-------|---------|-----------|
-| `.env.example` | repo root | Template with placeholder values | ✅ Yes |
-| `backend/.env` | `backend/` | Secrets for local dev (Neo4j, OpenAI, API_KEY) | ❌ No |
-| `frontend/.env` | `frontend/` | Frontend vars (`VITE_*`) | ❌ No |
-| `frontend/.env.example` | `frontend/` | Template for frontend vars | ✅ Yes |
+| `env.example` | repo root | Template with placeholder values | Yes |
+| `.env` | repo root | Secrets for local dev + Docker Compose | No |
+| `frontend/.env` | `frontend/` | Frontend vars (`VITE_*`) | No |
+| `frontend/.env.example` | `frontend/` | Template for frontend vars | Yes |
 
-### Root `.env.example` → copy to `backend/.env`
+### Root `env.example` → copy to `.env`
 
-Used by Docker Compose (`env_file: ./backend/.env`) and by the backend running locally.
+Used by Docker Compose (`env_file: ../.env`) and by the backend running locally.
 
 ```bash
-# backend/.env  (copy from root .env.example, fill in values)
+# .env  (copy from env.example, fill in values)
+
+# Application
+APP_NAME="GraphRAG Service"
+APP_VERSION="0.1.0"
+APP_ENVIRONMENT="development"
+APP_HOST="0.0.0.0"
+APP_PORT=8005
+APP_DEBUG=true
+
+# API Authentication
+APP_X_API_KEY="changeme-in-production"
+
+# CORS
+ALLOWED_ORIGINS_STR="http://localhost:3000,http://localhost:5173"
 
 # Neo4j
-NEO4J_URI=bolt://neo4j:7687        # Docker: use service name "neo4j"
-NEO4J_USER=neo4j                   # Local: use bolt://localhost:7687
-NEO4J_PASSWORD=your-password-here
+NEO4J_URI=bolt://localhost:7687       # Docker: bolt://neo4j:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password123
 
-# OpenAI
+# LLM (provider-agnostic via LangChain)
+LLM_PROVIDER=openai            # openai | google | ollama | qwen
+LLM_MODEL=gpt-4o-mini
+
+# Embeddings (provider-agnostic via LangChain)
+EMBEDDING_PROVIDER=openai      # openai | google | ollama | qwen
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIM=1536
+
+# Provider API Keys (set only the ones you use)
 OPENAI_API_KEY=sk-...
+GOOGLE_API_KEY=...
 
-# Security
-API_KEY=your-api-key-here          # Generate: python -c "import secrets; print(secrets.token_urlsafe(32))"
-API_KEY_ENABLED=true
+# Ollama (local models)
+OLLAMA_BASE_URL=http://localhost:11434
 
-# App
-APP_ENV=development
-LOG_LEVEL=INFO
-ALLOWED_ORIGINS=http://localhost:5173
+# RAG
+TOP_K_SEED_NODES=5
+TRAVERSAL_DEPTH=2
+
+# Data
+DATA_DIR=data
+MAX_PAPERS=5000
+INGEST_BATCH_SIZE=50
 ```
 
 ### `frontend/.env`
@@ -145,73 +224,131 @@ Only Vite-prefixed vars. These are embedded into the JS bundle at build time.
 
 ```bash
 # frontend/.env
-VITE_API_URL=http://localhost:8000
-VITE_API_KEY=your-api-key-here     # Same value as backend API_KEY
+VITE_API_URL=http://localhost:8005
+VITE_API_KEY=changeme-in-production     # Same value as APP_X_API_KEY
 ```
 
 Access in code: `import.meta.env.VITE_API_URL`
 **NOT** `process.env.*` — this is Vite, not Node/Next.js.
 
-### `backend/core/config.py`
+### `graphrag_service/core/config.py`
 
 ```python
+from functools import lru_cache
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    neo4j_uri: str
-    neo4j_user: str
-    neo4j_password: str
-    openai_api_key: str
-    api_key: str = ""
-    api_key_enabled: bool = True
-    app_env: str = "development"
-    log_level: str = "INFO"
-    allowed_origins: list[str] = ["http://localhost:5173"]
+    model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
-    class Config:
-        env_file = ".env"   # Reads backend/.env when running from backend/
+    APP_NAME: str = Field(default="GraphRAG Service")
+    APP_PORT: int = Field(default=8005)
+    APP_ENVIRONMENT: str = Field(default="development")
+    APP_DEBUG: bool = Field(default=False)
+    APP_X_API_KEY: str = Field(default="changeme")
+    ALLOWED_ORIGINS_STR: str = Field(default="http://localhost:3000,http://localhost:5173")
 
-settings = Settings()
+    NEO4J_URI: str = Field(default="bolt://localhost:7687")
+    NEO4J_USER: str = Field(default="neo4j")
+    NEO4J_PASSWORD: str = Field(default="password123")
+
+    # LLM
+    LLM_PROVIDER: str = Field(default="openai")
+    LLM_MODEL: str = Field(default="gpt-4o-mini")
+
+    # Embeddings
+    EMBEDDING_PROVIDER: str = Field(default="openai")
+    EMBEDDING_MODEL: str = Field(default="text-embedding-3-small")
+    EMBEDDING_DIM: int = Field(default=1536)
+
+    # Provider API Keys
+    OPENAI_API_KEY: str = Field(default="")
+    GOOGLE_API_KEY: str = Field(default="")
+    OLLAMA_BASE_URL: str = Field(default="http://localhost:11434")
+
+    TOP_K_SEED_NODES: int = Field(default=5)
+    TRAVERSAL_DEPTH: int = Field(default=2)
+
+    DATA_DIR: str = Field(default="data")
+    MAX_PAPERS: int = Field(default=5000)
+    INGEST_BATCH_SIZE: int = Field(default=50)
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS_STR.split(",")]
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
 ```
 
-**Rule**: Import `settings` from `core.config` everywhere. Never use `os.environ` directly.
+**Rule**: Import `get_settings` from `graphrag_service.core.config` everywhere. Never use `os.environ` directly.
 
 ---
 
 ## Docker Compose
 
-Each service builds from its own directory. Env vars for backend come from `backend/.env`.
+Docker files live in `docker/`. Services reference parent context paths.
 
 ```yaml
-# docker-compose.yml
+# docker/docker-compose.dev.yml
 services:
   neo4j:
     image: neo4j:5.15-community
+    container_name: graph-rag-neo4j
     ports:
       - "7474:7474"         # Neo4j Browser
       - "7687:7687"         # Bolt
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+      NEO4J_AUTH: neo4j/password123
+      NEO4J_PLUGINS: '["apoc"]'
     volumes:
       - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - graphrag-network
 
   backend:
-    build: ./backend        # Uses backend/Dockerfile
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: graph-rag-backend
     ports:
-      - "8000:8000"
-    env_file: ./backend/.env
+      - "8005:8005"
+    env_file:
+      - ../.env
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
     volumes:
-      - ./data:/app/data    # Mount PwC JSON into container
+      - ../backend/src:/app/src
+      - ../data:/app/data
     depends_on:
-      - neo4j
+      neo4j:
+        condition: service_healthy
+    networks:
+      - graphrag-network
 
   frontend:
-    build: ./frontend       # Uses frontend/Dockerfile
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: graph-rag-frontend
     ports:
-      - "5173:5173"         # dev
-      # - "80:80"           # prod (nginx)
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8005
     depends_on:
       - backend
+    networks:
+      - graphrag-network
+
+networks:
+  graphrag-network:
+    driver: bridge
 
 volumes:
   neo4j_data:
@@ -219,34 +356,39 @@ volumes:
 
 **`backend/Dockerfile` — key lines:**
 ```dockerfile
+FROM python:3.11-slim
 WORKDIR /app
-COPY pyproject.toml poetry.lock ./
-RUN pip install poetry && poetry install --no-root
-COPY src/ ./src/
+COPY pyproject.toml poetry.lock* ./
+RUN pip install --no-cache-dir poetry && poetry install --only main --no-root --no-cache
 COPY . .
-ENV PYTHONPATH=/app/src          # Makes imports work without prefix inside container
-CMD ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8005
+CMD ["poetry", "run", "start"]
 ```
 
-**One-time setup (run from repo root):**
+**Setup and daily commands via Makefile (run from repo root):**
 
 ```bash
-# 1. Start Neo4j
-docker compose up neo4j -d
+# First-time setup
+make setup              # Creates .env + installs deps
+make neo4j              # Start Neo4j container
+make schema             # Create constraints + vector indexes (via CLI)
+make download           # Download PwC JSON data
+make ingest             # Ingest data into Neo4j (~30 min)
 
-# 2. Create Neo4j schema (run from backend/)
-cd backend && poetry run python src/library/graph/schema.py
+# Daily development
+make backend            # FastAPI dev server on port 8005
+make frontend           # Vite dev server on port 5173
+make dev                # Both in parallel
 
-# 3. Download PwC data (run from repo root)
-bash data/download.sh
+# Docker (full stack)
+make docker-up          # Start all services
+make docker-build       # Build and start all services
+make docker-down        # Stop all services
 
-# 4. Ingest data (~30 min, run from backend/)
-cd backend && poetry run python src/library/graph/ingest.py
-```
-
-**Start everything:**
-```bash
-docker compose up --build
+# CLI commands
+make cli-schema         # poetry run cli graph schema
+make cli-ingest         # poetry run cli graph ingest
+make cli-status         # poetry run cli graph status
 ```
 
 ---
@@ -255,34 +397,44 @@ docker compose up --build
 
 ### Error Handling
 
-All Python functions must raise typed exceptions. Never swallow errors silently.
+All Python functions must raise typed exceptions from `shared/exceptions.py`.
+
+```python
+# Exception hierarchy
+BaseServiceException
+├── ValidationException
+├── RepositoryException
+│   └── Neo4jConnectionException
+├── ServiceException
+│   └── OpenAIException
+└── BaseHTTPException (extends FastAPI HTTPException)
+```
 
 ```python
 # Good
 try:
-    result = neo4j_client.run_query(cypher, params)
+    result = client.run_query(cypher, params)
 except Exception as e:
-    logger.error(f"Query failed: {e}")
-    raise HTTPException(status_code=500, detail="Graph query failed")
+    raise RepositoryException(f"Query failed: {e}")
 
 # Bad — never do this
 try:
-    result = neo4j_client.run_query(cypher, params)
+    result = client.run_query(cypher, params)
 except:
     return None
 ```
 
 ### Logging
 
-Use Python's `logging` module. Configure via `LOG_LEVEL` env var.
+Uses **structlog** configured in `core/logging.py`. Get logger via `get_logger(__name__)`.
 
 ```python
-import logging
-logger = logging.getLogger(__name__)
+from graphrag_service.core.logging import get_logger
+logger = get_logger(__name__)
 
-# Use structured messages
-logger.info("Embedding batch", extra={"batch_size": len(texts), "total": total})
-logger.error("OpenAI call failed", extra={"error": str(e)})
+# Structured context via keyword args
+logger.info("Batch embedded", batch=i, total=total_batches, size=len(batch))
+logger.error("Query failed", cypher=cypher[:100], error=str(e))
 ```
 
 ### Immutability
@@ -293,14 +445,14 @@ Always return new objects, never mutate in place:
 # Good
 def clean_paper(raw: dict) -> dict:
     return {
-        "id": raw["paper_url"].split("/")[-1],
+        "uid": raw.get("paper_url", raw.get("id", "")),
         "title": raw["title"].strip(),
         "abstract": raw.get("abstract", ""),
     }
 
 # Bad — mutates input
 def clean_paper(raw: dict) -> dict:
-    raw["id"] = raw["paper_url"].split("/")[-1]
+    raw["uid"] = raw["paper_url"]
     return raw
 ```
 
@@ -313,7 +465,7 @@ All functions require type hints. No exceptions.
 def embed_text(text: str) -> list[float]:
     ...
 
-def run_query(cypher: str, params: dict) -> list[dict]:
+def run_query(cypher: str, params: dict | None = None) -> list:
     ...
 
 # Bad
@@ -335,36 +487,30 @@ Tests live **inside each service** — not at repo root.
 
 | Service | Test dir | Runner | Coverage |
 |---------|---------|--------|---------|
-| Backend | `backend/tests/` | `poetry run pytest` | ≥80% |
-| Frontend | `frontend/src/` (co-located or `__tests__/`) | `npm run test` | ≥80% |
+| Backend | `backend/tests/` | `poetry run pytest` | >= 80% |
+| Frontend | `frontend/src/` (co-located or `__tests__/`) | `npm run test` | >= 80% |
 
 ```bash
-# Backend tests (from backend/)
+# Backend tests (from repo root via Makefile)
+make test                  # All tests
+make test-unit             # Unit tests only
+make test-integration      # Integration tests (requires Neo4j)
+make test-coverage         # Tests with coverage report
+
+# Or from backend/
 cd backend
 poetry run pytest tests/ -v
-poetry run pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=80
-
-# By layer
-poetry run pytest tests/unit/ -v
-poetry run pytest tests/integration/ -v           # Requires Neo4j running
-poetry run pytest tests/e2e/ -k "mock" -v         # Fast, no services needed
-poetry run pytest tests/e2e/ -k "bdd" -v          # Requires full stack running
-
-# Frontend tests (from frontend/)
-cd frontend
-npm run test       # vitest
-npm run test:ui    # vitest with browser UI
+poetry run pytest tests/ --cov=graphrag_service --cov-report=term-missing --cov-fail-under=80
 ```
 
-Test file mirrors source file (from `src/` perspective):
+Test file mirrors source file (from `graphrag_service/` perspective):
 ```
-backend/src/library/rag/embedder.py   ↔  backend/tests/unit/library/rag/test_embedder.py
-backend/src/library/graph/parser.py  ↔  backend/tests/unit/library/graph/test_parser.py
-backend/src/dbase/neo4j/client.py     ↔  backend/tests/unit/dbase/neo4j/test_client.py
-backend/src/router.py                 ↔  backend/tests/e2e/query/mock/test_query_mock.py
+backend/src/graphrag_service/modules/rag/services.py   ↔  backend/tests/unit/modules/rag/test_services.py
+backend/src/graphrag_service/modules/graph/services.py ↔  backend/tests/unit/modules/graph/test_services.py
+backend/src/graphrag_service/dbase/neo4j/client.py     ↔  backend/tests/unit/dbase/neo4j/test_client.py
 ```
 
-Note: `--cov=src` measures coverage of `src/` directory (not `tests/`).
+Note: `--cov=graphrag_service` measures coverage of the package.
 
 ---
 
@@ -374,58 +520,49 @@ Note: `--cov=src` measures coverage of `src/` directory (not `tests/`).
 
 ```toml
 [tool.poetry]
-name = "graphrag-neo4j-backend"
+name = "graphrag-service"
 version = "0.1.0"
-description = "Graph RAG over ML research papers"
-python = "^3.11"
-packages = [{include = "src"}]       # Tells Poetry the source root
+packages = [{include = "graphrag_service", from = "src"}]
+
+[tool.poetry.scripts]
+start = "graphrag_service.main:main"
+dev = "graphrag_service.main:dev"
+cli = "graphrag_service.cli.main:main"
 
 [tool.poetry.dependencies]
+python = "^3.11"
 fastapi = "^0.115"
-uvicorn = {extras = ["standard"], version = "^0.30"}
-neo4j = "^5.15"
-openai = "^1.40"
-pydantic-settings = "^2.4"
-
-[tool.poetry.group.dev.dependencies]
-black = "^24.0"
-ruff = "^0.4"
-mypy = "^1.10"
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.0"
-pytest-asyncio = "^0.23"
-pytest-cov = "^5.0"
-pytest-bdd = "^7.0"
-pytest-mock = "^3.12"
-httpx = "^0.27"
-factory-boy = "^3.3"
-
-[tool.black]
-line-length = 88
-
-[tool.ruff]
-line-length = 88
-select = ["E", "F", "W", "I"]
-
-[tool.mypy]
-strict = true
-python_version = "3.11"
+uvicorn = {extras = ["standard"], version = "^0.29"}
+pydantic = "^2.7"
+pydantic-settings = "^2.2"
+neo4j = "^6.1"
+neomodel = "^6.1"
+langchain-core = "^0.3"
+langgraph = "^0.3"
+langchain-openai = "^0.3"
+structlog = "^24.1"
+typer = {extras = ["all"], version = "^0.12"}
+rich = "^13.7"
+tqdm = "^4.66"
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+pythonpath = ["src"]
 testpaths = ["tests"]
-pythonpath = ["src"]                 # Adds src/ to Python path — imports work without prefix
+asyncio_mode = "auto"
+
+[tool.isort]
+profile = "black"
+known_first_party = ["graphrag_service"]
 ```
 
-**`pythonpath = ["src"]`** means pytest (and uvicorn when run from `backend/`) resolves imports from `src/`:
+**`pythonpath = ["src"]`** means pytest resolves imports from `src/`:
 ```python
-from core.config import settings    # resolves → backend/src/core/config.py
-from library.rag.embedder import embed_text # resolves → backend/src/library/rag/embedder.py
+from graphrag_service.core.config import get_settings  # resolves → src/graphrag_service/core/config.py
+from graphrag_service.modules.rag.services import RAGService  # resolves → src/graphrag_service/modules/rag/services.py
 ```
 
 - **Formatter**: `poetry run black src/ tests/`
-- **Linter**: `poetry run ruff check src/ tests/`
+- **Linter**: `poetry run isort src/ tests/`
 - **Type checker**: `poetry run mypy src/`
 
 ### TypeScript / React (`frontend/package.json` scripts)
@@ -437,17 +574,11 @@ from library.rag.embedder import embed_text # resolves → backend/src/library/r
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:ui": "vitest --ui",
     "lint": "eslint src --ext ts,tsx",
     "format": "prettier --write src"
   }
 }
 ```
-
-- **Formatter**: `prettier` — `npm run format`
-- **Linter**: `eslint` with TypeScript rules — `npm run lint`
-- Strict TypeScript (`"strict": true` in `tsconfig.json`)
-- No `any` types — define proper interfaces
 
 ---
 
@@ -461,7 +592,7 @@ Types: feat, fix, refactor, docs, test, chore, perf
 
 Examples:
 ```
-feat: add vector search with depth-2 graph traversal
+feat: add vector search with neomodel VectorFilter
 fix: handle empty abstract in paper parser
 test: add embedder batch size boundary tests
 chore: update docker compose neo4j to 5.15

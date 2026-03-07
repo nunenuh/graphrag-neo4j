@@ -9,26 +9,29 @@ Test structure, naming rules, and patterns for unit, integration, e2e mock, and 
 ```
 tests/
 ├── conftest.py                      # Shared fixtures (client, mocks, test Neo4j)
-├── unit/                            # Unit tests — mocked deps, mirrors src/ structure
+├── unit/                            # Unit tests — mocked deps, mirrors graphrag_service/ structure
 │   ├── conftest.py
-│   ├── library/
+│   ├── modules/
 │   │   ├── rag/
-│   │   │   ├── test_embedder.py
-│   │   │   ├── test_retriever.py
-│   │   │   └── test_generator.py
-│   │   └── graph/
-│   │       └── test_parser.py
+│   │   │   ├── test_services.py
+│   │   │   └── test_repositories.py
+│   │   ├── graph/
+│   │   │   ├── test_services.py
+│   │   │   └── test_repositories.py
+│   │   └── health/
+│   │       └── test_services.py
 │   ├── core/
-│   │   └── test_config.py
+│   │   ├── test_config.py
+│   │   └── test_auth.py
 │   └── dbase/
 │       └── neo4j/
 │           └── test_client.py
-├── integration/                     # Integration tests — real Neo4j (test instance), mirrors src/
+├── integration/                     # Integration tests — real Neo4j (test instance), mirrors graphrag_service/
 │   ├── conftest.py                  # Neo4j test client fixture
-│   └── library/
+│   └── modules/
 │       └── graph/
-│           ├── test_schema.py
-│           ├── test_ingest.py
+│           ├── test_services.py
+│           ├── test_repositories.py
 │           └── test_retriever_neo4j.py
 └── e2e/
     ├── query/                       # Feature: POST /api/query
@@ -63,7 +66,7 @@ tests/
 | Layer | Mocked? | Speed | Purpose |
 |-------|---------|-------|---------|
 | `unit/` | Yes (all external deps) | Fast (<1s each) | Test logic in isolation |
-| `integration/` | No (real Neo4j test DB) | Medium (1–5s) | Test DB queries and schema |
+| `integration/` | No (real Neo4j test DB) | Medium (1-5s) | Test DB queries and schema |
 | `e2e/{feature}/mock/` | Yes (Neo4j + OpenAI) | Fast | Test full API surface with controlled data |
 | `e2e/{feature}/bdd/` | **No** (real services) | Slow | BDD scenarios against real running stack |
 
@@ -73,7 +76,7 @@ tests/
 
 ```toml
 # pyproject.toml
-[tool.poetry.group.test.dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 pytest-asyncio = "^0.23"
 pytest-cov = "^5.0"
@@ -83,19 +86,32 @@ pytest-mock = "^3.12"         # mocker fixture
 factory-boy = "^3.3"          # Test data factories
 ```
 
-Run tests:
+Run tests via Makefile:
 ```bash
 # All tests
-pytest tests/ --cov=src --cov-report=term-missing
+make test
 
 # By layer
-pytest tests/unit/ -v
-pytest tests/integration/ -v
-pytest tests/e2e/query/mock/ -v
-pytest tests/e2e/query/bdd/ -v    # Requires running stack
+make test-unit
+make test-integration
+
+# Coverage report (uses --cov=graphrag_service)
+make test-coverage
+```
+
+Or directly with pytest:
+```bash
+# All tests
+cd backend && poetry run pytest tests/ --cov=graphrag_service --cov-report=term-missing
+
+# By layer
+cd backend && poetry run pytest tests/unit/ -v
+cd backend && poetry run pytest tests/integration/ -v
+cd backend && poetry run pytest tests/e2e/query/mock/ -v
+cd backend && poetry run pytest tests/e2e/query/bdd/ -v    # Requires running stack
 
 # Coverage gate
-pytest tests/ --cov=src --cov-fail-under=80
+cd backend && poetry run pytest tests/ --cov=graphrag_service --cov-fail-under=80
 ```
 
 ---
@@ -116,14 +132,14 @@ def test_batch_embed_calls_openai_with_correct_model(): ...
 def test_parser_skips_papers_with_missing_title(): ...
 ```
 
-### Example: `tests/unit/library/rag/test_embedder.py`
+### Example: `tests/unit/modules/rag/test_services.py`
 
 ```python
-"""Unit tests for library/rag/embedder.py"""
+"""Unit tests for graphrag_service/modules/rag/services.py"""
 import pytest
 from unittest.mock import MagicMock, patch
 
-from library.rag.embedder import embed_text, batch_embed, EMBEDDING_MODEL, BATCH_SIZE
+from graphrag_service.modules.rag.services import EmbedderService, embed_text, batch_embed, EMBEDDING_MODEL, BATCH_SIZE
 
 
 class TestEmbedText:
@@ -167,7 +183,7 @@ class TestBatchEmbed:
 
     def test_splits_into_batches(self, mock_openai_client):
         """batch_embed calls API ceil(n / BATCH_SIZE) times."""
-        texts = ["text"] * (BATCH_SIZE + 1)  # 101 texts → 2 batches
+        texts = ["text"] * (BATCH_SIZE + 1)  # 101 texts -> 2 batches
         mock_openai_client.embeddings.create.return_value = MagicMock(
             data=[MagicMock(index=i, embedding=[0.1] * 1536) for i in range(BATCH_SIZE + 1)]
         )
@@ -186,20 +202,31 @@ from unittest.mock import MagicMock, patch
 @pytest.fixture
 def mock_openai_client():
     """Mock OpenAI client for unit tests."""
-    with patch("openai.OpenAI") as mock_cls:
+    with patch("graphrag_service.modules.rag.services.OpenAI") as mock_cls:
         mock_instance = MagicMock()
         mock_cls.return_value = mock_instance
         yield mock_instance
 
 
 @pytest.fixture
-def mock_neo4j_client():
-    """Mock Neo4jClient.run_query for unit tests."""
-    with patch("dbase.neo4j.client.Neo4jClient") as mock_cls:
-        mock_instance = MagicMock()
-        mock_instance.run_query.return_value = []
-        mock_cls.return_value = mock_instance
-        yield mock_instance
+def mock_neomodel_db():
+    """Mock neomodel database connection for unit tests."""
+    with patch("graphrag_service.dbase.neo4j.client.db") as mock_db:
+        mock_db.cypher_query.return_value = ([], [])
+        yield mock_db
+
+
+@pytest.fixture
+def mock_settings(monkeypatch):
+    """Mock application settings for unit tests."""
+    mock = MagicMock()
+    mock.APP_X_API_KEY = "test-api-key"
+    mock.NEO4J_URI = "bolt://localhost:7687"
+    mock.NEO4J_USER = "neo4j"
+    mock.NEO4J_PASSWORD = "test-password"
+    mock.OPENAI_API_KEY = "sk-test"
+    monkeypatch.setattr("graphrag_service.core.auth.get_settings", lambda: mock)
+    return mock
 
 
 @pytest.fixture
@@ -223,58 +250,58 @@ Test against a **real Neo4j test instance**. Uses a separate test database — n
 ```python
 # tests/integration/conftest.py
 import pytest
-from neo4j import GraphDatabase
-from core.config import Settings
+from neomodel import config as neomodel_config, db
+from graphrag_service.core.config import get_settings
 
 @pytest.fixture(scope="session")
 def test_settings():
     """Settings pointing to test Neo4j instance."""
-    return Settings(
-        neo4j_uri="bolt://localhost:7688",  # Test port — different from prod 7687
-        neo4j_user="neo4j",
-        neo4j_password="test-password",
-        openai_api_key="sk-test",  # Not used in Neo4j integration tests
-    )
+    return get_settings().model_copy(update={
+        "NEO4J_URI": "bolt://localhost:7688",  # Test port — different from prod 7687
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "test-password",
+    })
 
 @pytest.fixture(scope="session")
-def neo4j_test_client(test_settings):
-    """Real Neo4j client connected to test instance."""
-    from dbase.neo4j.client import Neo4jClient
-    client = Neo4jClient(test_settings.neo4j_uri, test_settings.neo4j_user, test_settings.neo4j_password)
-    yield client
-    client.close()
+def neo4j_test_db(test_settings):
+    """Configure neomodel to use the test Neo4j instance."""
+    neomodel_config.DATABASE_URL = (
+        f"bolt://{test_settings.NEO4J_USER}:{test_settings.NEO4J_PASSWORD}"
+        f"@{test_settings.NEO4J_URI.replace('bolt://', '')}"
+    )
+    yield db
 
 @pytest.fixture(autouse=True)
-def clean_neo4j(neo4j_test_client):
+def clean_neo4j(neo4j_test_db):
     """Wipe all nodes/edges before each test."""
-    neo4j_test_client.run_query("MATCH (n) DETACH DELETE n")
+    neo4j_test_db.cypher_query("MATCH (n) DETACH DELETE n")
     yield
-    neo4j_test_client.run_query("MATCH (n) DETACH DELETE n")
+    neo4j_test_db.cypher_query("MATCH (n) DETACH DELETE n")
 ```
 
-### Example: `tests/integration/library/graph/test_schema.py`
+### Example: `tests/integration/modules/graph/test_services.py`
 
 ```python
-"""Integration tests for library/graph/schema.py against real Neo4j."""
+"""Integration tests for graphrag_service/modules/graph/services.py against real Neo4j."""
 import pytest
-from library.graph.schema import setup_schema
+from graphrag_service.modules.graph.services import setup_schema
 
-def test_setup_schema_creates_vector_indexes(neo4j_test_client):
+def test_setup_schema_creates_vector_indexes(neo4j_test_db):
     """setup_schema creates all 4 vector indexes."""
-    setup_schema(neo4j_test_client)
-    result = neo4j_test_client.run_query(
+    setup_schema()
+    result, _ = neo4j_test_db.cypher_query(
         "SHOW INDEXES YIELD name WHERE name CONTAINS 'embeddings' RETURN name"
     )
-    index_names = {row["name"] for row in result}
+    index_names = {row[0] for row in result}
     assert "paper_embeddings" in index_names
     assert "method_embeddings" in index_names
     assert "task_embeddings" in index_names
     assert "dataset_embeddings" in index_names
 
-def test_setup_schema_is_idempotent(neo4j_test_client):
+def test_setup_schema_is_idempotent(neo4j_test_db):
     """Running setup_schema twice does not raise errors."""
-    setup_schema(neo4j_test_client)
-    setup_schema(neo4j_test_client)  # Should not raise
+    setup_schema()
+    setup_schema()  # Should not raise
 ```
 
 ---
@@ -291,7 +318,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 
-from main import app
+from graphrag_service.main import app
 
 client = TestClient(app)
 
@@ -299,8 +326,8 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def mock_services():
     """Mock Neo4j and OpenAI for all tests in this module."""
-    with patch("router.retrieve") as mock_retrieve, \
-         patch("router.generate_answer") as mock_generate:
+    with patch("graphrag_service.modules.rag.apiv1.handler.retrieve") as mock_retrieve, \
+         patch("graphrag_service.modules.rag.apiv1.handler.generate_answer") as mock_generate:
 
         mock_retrieve.return_value = MagicMock(
             seed_nodes=[MagicMock(id="yolo", label="Method", name="YOLO", score=0.92)],
@@ -374,7 +401,7 @@ Feature: Graph RAG Query
 
   Background:
     Given the Neo4j database contains ML research data
-    And the API is running at "http://localhost:8000"
+    And the API is running at "http://localhost:8005"
 
   Scenario: Ask about object detection methods
     Given I have a question "What methods are used for object detection?"
@@ -433,7 +460,7 @@ from pytest_bdd import given, when, then, parsers, scenarios
 
 scenarios("features/query.feature")
 
-BASE_URL = "http://localhost:8000"  # Real running stack
+BASE_URL = "http://localhost:8005"  # Real running stack
 
 
 @pytest.fixture
@@ -447,7 +474,7 @@ def have_question(context, question):
     context["question"] = question
 
 
-@given("the API is running at \"http://localhost:8000\"")
+@given("the API is running at \"http://localhost:8005\"")
 def api_running():
     """Verify the API is reachable before running scenarios."""
     try:
@@ -537,17 +564,22 @@ def answer_mentions_seed_node(context):
 ### Running BDD Tests
 
 ```bash
-# Requires: docker compose up (full stack running)
-pytest tests/e2e/query/bdd/ -v
+# Requires: docker compose up (full stack running on port 8005)
+make test               # All tests
+make test-unit          # Unit tests only
+make test-integration   # Integration tests only
+
+# Or directly with pytest
+cd backend && poetry run pytest tests/e2e/query/bdd/ -v
 
 # With detailed Gherkin output
-pytest tests/e2e/query/bdd/ -v --gherkin-terminal-reporter
+cd backend && poetry run pytest tests/e2e/query/bdd/ -v --gherkin-terminal-reporter
 
 # Skip if stack not running (useful in CI)
-pytest tests/e2e/ --ignore=tests/e2e/*/bdd/ -v  # Skip all BDD
+cd backend && poetry run pytest tests/e2e/ --ignore=tests/e2e/*/bdd/ -v  # Skip all BDD
 
 # Run only BDD
-pytest tests/e2e/ -k "bdd" -v
+cd backend && poetry run pytest tests/e2e/ -k "bdd" -v
 ```
 
 **CI Strategy:**
@@ -558,22 +590,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run unit tests
-        run: pytest tests/unit/ -v --cov=src
+        run: cd backend && poetry run pytest tests/unit/ -v --cov=graphrag_service
       - name: Start test Neo4j
-        run: docker compose up neo4j -d && sleep 10
+        run: docker compose -f docker/docker-compose.dev.yml up neo4j -d && sleep 10
       - name: Run integration tests
-        run: pytest tests/integration/ -v
+        run: cd backend && poetry run pytest tests/integration/ -v
       - name: Run e2e mock tests
-        run: pytest tests/e2e/ -k "mock" -v
+        run: cd backend && poetry run pytest tests/e2e/ -k "mock" -v
 
   bdd:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'  # Only on main branch
     steps:
       - name: Start full stack
-        run: docker compose up --build -d && sleep 30
+        run: docker compose -f docker/docker-compose.dev.yml up --build -d && sleep 30
       - name: Run BDD tests
-        run: pytest tests/e2e/ -k "bdd" -v
+        run: cd backend && poetry run pytest tests/e2e/ -k "bdd" -v
 ```
 
 ---
@@ -609,16 +641,19 @@ paper = PaperFactory(title="Custom Title", year=2021)
 
 | Layer | Min Coverage |
 |-------|-------------|
-| `library/rag/embedder.py` | 90% |
-| `library/rag/retriever.py` | 85% |
-| `library/rag/generator.py` | 85% |
-| `library/graph/parser.py` | 90% |
+| `modules/rag/services.py` | 90% |
+| `modules/rag/repositories.py` | 85% |
+| `modules/graph/services.py` | 85% |
+| `modules/graph/repositories.py` | 90% |
 | `router.py` | 80% |
 | Overall backend | **80%** |
 
 ```bash
-pytest tests/unit/ tests/integration/ \
-    --cov=src \
+make test-coverage
+
+# Or directly:
+cd backend && poetry run pytest tests/unit/ tests/integration/ \
+    --cov=graphrag_service \
     --cov-report=term-missing \
     --cov-fail-under=80
 ```
