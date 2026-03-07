@@ -1,5 +1,5 @@
 # Variables
-POETRY := poetry
+POETRY := $(shell command -v poetry 2>/dev/null || echo "$(HOME)/.local/share/pypoetry/venv/bin/poetry")
 PROJECT := graphrag_service
 PORT ?= 8005
 HOST ?= 0.0.0.0
@@ -160,7 +160,7 @@ run: check-env ## Start FastAPI application
 	@echo "$(BLUE)Starting FastAPI application...$(RESET)"
 	cd backend && $(POETRY) run start
 
-backend: check-env ## Start FastAPI dev server (port 8005)
+backend: check-env dev-stop ## Start FastAPI dev server (port 8005)
 	cd backend && APP_DEBUG=true $(POETRY) run dev
 
 frontend: ## Start Vite dev server (port 5173)
@@ -173,8 +173,9 @@ dev: ## Start backend + frontend in parallel
 	@wait
 
 dev-stop: ## Kill dev servers
-	@-pkill -f "uvicorn graphrag_service" 2>/dev/null || true
+	@-pkill -9 -f "uvicorn graphrag_service" 2>/dev/null || true
 	@-pkill -f "vite" 2>/dev/null || true
+	@while ss -tlnp 2>/dev/null | grep -q ":$(PORT) "; do sleep 0.5; done
 	@echo "$(GREEN)Dev servers stopped$(RESET)"
 
 # ──────────────────────────────────────────────

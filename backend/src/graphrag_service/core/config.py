@@ -3,17 +3,21 @@ Application configuration using Pydantic settings.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
+
+# Project root: backend/../ → the repo root where .env lives
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = ConfigDict(
-        env_file=".env",
+        env_file=str(_PROJECT_ROOT / ".env"),
         case_sensitive=False,
         extra="ignore",
     )
