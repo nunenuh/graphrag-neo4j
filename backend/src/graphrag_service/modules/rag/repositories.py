@@ -1,21 +1,17 @@
 """
-RAG module repositories — vector search (neomodel VectorFilter) and traversal.
+RAG module repositories — vector search (Cypher) and graph traversal.
 """
 
 from dataclasses import dataclass, field
 
-from neomodel import StructuredNode
-from neomodel.semantic_filters import VectorFilter
-
 from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
-from graphrag_service.dbase.neo4j.models import Dataset, Method, Paper, Task
 from graphrag_service.shared.exceptions import RepositoryException
 
 logger = get_logger(__name__)
 
-# Models to search across
-SEARCH_MODELS: list[type[StructuredNode]] = [Paper, Method, Task, Dataset]
+# Labels to search across
+SEARCH_LABELS: list[str] = ["Paper", "Method", "Task", "Dataset"]
 
 TRAVERSE_QUERY = """
     MATCH (seed) WHERE seed.uid IN $ids
@@ -39,54 +35,44 @@ class VectorSearchResult:
 
 
 class VectorSearchRepository:
-    """Vector similarity search using neomodel VectorFilter."""
+    """Vector similarity search using raw Cypher db.index.vector.queryNodes."""
 
     def __init__(self, client: Neo4jClient):
         self._client = client
 
-    def search(
-        self, vec: list[float], model: type[StructuredNode], k: int
-    ) -> list[VectorSearchResult]:
-        """Search a single neomodel node class by vector similarity."""
-        label = model.__label__
+    def search(self, vec: list[float], label: str, k: int) -> list[VectorSearchResult]:
+        """Search a single label by vector similarity via Cypher."""
+        index_name = f"vector_index_{label}_embedding"
+        cypher = (
+            "CALL db.index.vector.queryNodes($index, $k, $vec) "
+            "YIELD node, score "
+            "RETURN node, score, labels(node)[0] AS label"
+        )
         try:
-            hits = model.nodes.filter(
-                vector_filter=VectorFilter(
-                    topk=k,
-                    vector_attribute_name="embedding",
-                    candidate_vector=vec,
-                )
-            ).all()
+            rows = self._client.run_query(cypher, {"index": index_name, "k": k, "vec": vec})
         except Exception as e:
             raise RepositoryException(f"Vector search failed on {label}: {e}")
 
         results = []
-        for item in hits:
-            node, score = item if isinstance(item, tuple) else (item, 0.0)
-
-            props = {}
-            for prop_name in model.defined_properties(aliases=False, rels=False):
-                if prop_name != "embedding":
-                    val = getattr(node, prop_name, None)
-                    if val is not None:
-                        props[prop_name] = val
-
+        for row in rows:
+            node = row["node"]
+            props = {k: v for k, v in dict(node).items() if k != "embedding"}
             results.append(
                 VectorSearchResult(
-                    id=node.uid,
-                    label=label,
-                    name=getattr(node, "name", None) or getattr(node, "title", "") or "",
-                    score=score,
+                    id=props.get("uid", ""),
+                    label=row["label"],
+                    name=props.get("name") or props.get("title", ""),
+                    score=row["score"],
                     properties=props,
                 )
             )
         return results
 
     def search_all(self, vec: list[float], k: int) -> list[VectorSearchResult]:
-        """Search across all node models and return top-k overall."""
+        """Search across all node labels and return top-k overall."""
         all_results: list[VectorSearchResult] = []
-        for model in SEARCH_MODELS:
-            all_results.extend(self.search(vec, model, k))
+        for label in SEARCH_LABELS:
+            all_results.extend(self.search(vec, label, k))
         all_results.sort(key=lambda r: r.score, reverse=True)
         return all_results[:k]
 
