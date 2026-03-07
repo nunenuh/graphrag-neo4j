@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class QueryRequest(BaseModel):
     """RAG query request."""
 
-    question: str = Field(..., min_length=1, description="The question to ask")
+    question: str = Field(..., min_length=1, max_length=2000, description="The question to ask")
 
 
 class SeedNodeOut(BaseModel):

@@ -5,33 +5,28 @@ Graph RAG over Papers With Code data using Neo4j as a unified
 graph + vector store with OpenAI embeddings and LLM.
 """
 
-import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import get_settings
 from .core.dependencies import close_neo4j_client
-from .core.logging import setup_logging
+from .core.logging import get_logger, setup_logging
 from .router import api_router
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+_DOCS_ENVS = {"development", "local", "staging"}
 
 
-def get_docs_path():
-    """Get docs path based on environment."""
-    settings = get_settings()
-    if settings.APP_ENVIRONMENT in ["development", "local", "staging"]:
-        return "/docs"
-    return None
-
-
-def get_redoc_path():
-    """Get redoc path based on environment."""
-    settings = get_settings()
-    if settings.APP_ENVIRONMENT in ["development", "local", "staging"]:
-        return "/redoc"
-    return None
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Application lifespan — startup and shutdown."""
+    logger.info("Application starting up...")
+    yield
+    logger.info("Application shutting down...")
+    close_neo4j_client()
 
 
 def create_app() -> FastAPI:
@@ -39,21 +34,24 @@ def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging()
 
+    show_docs = settings.APP_ENVIRONMENT in _DOCS_ENVS
+
     app = FastAPI(
         title=settings.APP_NAME,
         description=settings.APP_DESCRIPTION,
         version=settings.APP_VERSION,
-        docs_url=get_docs_path(),
-        redoc_url=get_redoc_path(),
+        docs_url="/docs" if show_docs else None,
+        redoc_url="/redoc" if show_docs else None,
         debug=settings.APP_DEBUG,
+        lifespan=lifespan,
     )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "X-API-Key"],
     )
 
     app.include_router(api_router, prefix="/api")
@@ -62,21 +60,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Handle application startup."""
-    logger.info("Application starting up...")
-    logger.info("Application startup complete")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Handle application shutdown."""
-    logger.info("Application shutting down...")
-    close_neo4j_client()
-    logger.info("Application shutdown complete")
 
 
 def main():

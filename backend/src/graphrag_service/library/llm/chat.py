@@ -29,4 +29,4 @@ def generate(
         response = chat.invoke(messages)
         return str(response.content)
     except Exception as e:
-        raise ServiceException(f"LLM generation failed: {e}")
+        raise ServiceException(f"LLM generation failed: {e}") from e

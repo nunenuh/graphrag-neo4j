@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from graphrag_service.core.config import get_settings
 from graphrag_service.core.dependencies import get_neo4j_client
 from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
@@ -57,17 +58,18 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
         )
 
     except ServiceException as e:
-        logger.error(f"Service error: {str(e)}")
+        logger.error("Service error", error=str(e))
+        msg = str(e) if get_settings().APP_DEBUG else "A service error occurred"
         raise HTTPException(
             status_code=503,
             detail={
                 "error": "service_error",
-                "message": str(e),
+                "message": msg,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
     except Exception as e:
-        logger.error(f"RAG query error: {str(e)}")
+        logger.error("RAG query error", error=str(e))
         raise HTTPException(
             status_code=500,
             detail={

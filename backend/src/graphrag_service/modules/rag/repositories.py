@@ -51,7 +51,7 @@ class VectorSearchRepository:
         try:
             rows = self._client.run_query(cypher, {"index": index_name, "k": k, "vec": vec})
         except Exception as e:
-            raise RepositoryException(f"Vector search failed on {label}: {e}")
+            raise RepositoryException(f"Vector search failed on {label}: {e}") from e
 
         results = []
         for row in rows:
@@ -91,7 +91,7 @@ class TraversalRepository:
         try:
             rows = self._client.run_query(TRAVERSE_QUERY, {"ids": node_ids})
         except Exception as e:
-            raise RepositoryException(f"Graph traversal failed: {e}")
+            raise RepositoryException(f"Graph traversal failed: {e}") from e
 
         all_nodes: dict[str, dict] = {}
         all_edges: list[dict] = []

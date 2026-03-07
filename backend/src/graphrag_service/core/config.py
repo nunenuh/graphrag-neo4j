@@ -4,7 +4,6 @@ Application configuration using Pydantic settings.
 
 from functools import lru_cache
 from pathlib import Path
-from typing import List
 
 from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
@@ -47,13 +46,11 @@ class Settings(BaseSettings):
     )
 
     @property
-    def allowed_origins(self) -> List[str]:
+    def allowed_origins(self) -> list[str]:
         """Parse allowed_origins from comma-separated string."""
         if not self.ALLOWED_ORIGINS_STR:
-            return ["*"]
-        if "," in self.ALLOWED_ORIGINS_STR:
-            return [origin.strip() for origin in self.ALLOWED_ORIGINS_STR.split(",")]
-        return [self.ALLOWED_ORIGINS_STR.strip()]
+            return []
+        return [o.strip() for o in self.ALLOWED_ORIGINS_STR.split(",") if o.strip()]
 
     # Neo4j Settings
     NEO4J_URI: str = Field(default="bolt://localhost:7687", description="Neo4j bolt URI")

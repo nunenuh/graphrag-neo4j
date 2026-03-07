@@ -17,6 +17,24 @@ logger = get_logger(__name__)
 
 EXPLORE_QUERY = "MATCH (a)-[r]->(b) RETURN a, type(r) AS rel, b LIMIT $limit"
 
+# Allowlist for label names — prevents Cypher injection via f-string interpolation
+VALID_LABELS: frozenset[str] = frozenset(m.__label__ for m in ALL_NODE_MODELS)
+
+
+def _validate_label(label: str) -> str:
+    """Validate a label against the allowlist. Raises ValueError if invalid."""
+    if label not in VALID_LABELS:
+        raise ValueError(f"Invalid label: '{label}'. Must be one of: {', '.join(sorted(VALID_LABELS))}")
+    return label
+
+
+def _validate_rel_type(rel_type: str) -> str:
+    """Validate a relationship type name contains only safe characters."""
+    import re
+    if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", rel_type):
+        raise ValueError(f"Invalid relationship type: '{rel_type}'")
+    return rel_type
+
 # Batch upsert Cypher templates per label
 UPSERT_TEMPLATES: dict[str, str] = {}
 
@@ -75,7 +93,7 @@ class SchemaRepository:
             )
             return rows[0]["l"] if rows else []
         except Exception as e:
-            raise RepositoryException(f"Failed to get labels: {e}")
+            raise RepositoryException(f"Failed to get labels: {e}") from e
 
     def get_relationship_types(self) -> List[str]:
         try:
@@ -85,7 +103,7 @@ class SchemaRepository:
             )
             return rows[0]["r"] if rows else []
         except Exception as e:
-            raise RepositoryException(f"Failed to get relationship types: {e}")
+            raise RepositoryException(f"Failed to get relationship types: {e}") from e
 
     def get_schema(self) -> Tuple[List[str], List[str]]:
         return self.get_labels(), self.get_relationship_types()
@@ -109,7 +127,7 @@ class NodeRepository:
         try:
             self._client.run_query(cypher, {"rows": records})
         except Exception as e:
-            raise RepositoryException(f"Failed to upsert {model.__label__} batch: {e}")
+            raise RepositoryException(f"Failed to upsert {model.__label__} batch: {e}") from e
 
     def merge_used_for(self, dataset_name: str, task_name: str) -> None:
         self._client.run_query(
@@ -150,7 +168,7 @@ class GraphExploreRepository:
         try:
             rows = self._client.run_query(EXPLORE_QUERY, {"limit": limit})
         except Exception as e:
-            raise RepositoryException(f"Failed to explore graph: {e}")
+            raise RepositoryException(f"Failed to explore graph: {e}") from e
 
         nodes: dict[str, dict] = {}
         edges: list[dict] = []
@@ -175,13 +193,13 @@ class GraphExploreRepository:
         counts: dict[str, int] = {}
         try:
             for model in ALL_NODE_MODELS:
-                label = model.__label__
+                label = _validate_label(model.__label__)
                 rows = self._client.run_query(
                     f"MATCH (n:{label}) RETURN count(n) AS c"
                 )
                 counts[label] = rows[0]["c"] if rows else 0
         except Exception as e:
-            raise RepositoryException(f"Failed to get node counts: {e}")
+            raise RepositoryException(f"Failed to get node counts: {e}") from e
 
         edge_counts: dict[str, int] = {}
         try:
@@ -190,13 +208,13 @@ class GraphExploreRepository:
                 "RETURN t"
             )
             for row in rel_rows:
-                t = row["t"]
+                t = _validate_rel_type(row["t"])
                 cnt_rows = self._client.run_query(
                     f"MATCH ()-[r:{t}]->() RETURN count(r) AS c"
                 )
                 edge_counts[t] = cnt_rows[0]["c"] if cnt_rows else 0
         except Exception as e:
-            raise RepositoryException(f"Failed to get edge counts: {e}")
+            raise RepositoryException(f"Failed to get edge counts: {e}") from e
 
         total_nodes = sum(counts.values())
         total_edges = sum(edge_counts.values())
@@ -221,7 +239,7 @@ class GraphExploreRepository:
                 {"uid": uid},
             )
         except Exception as e:
-            raise RepositoryException(f"Failed to get node {uid}: {e}")
+            raise RepositoryException(f"Failed to get node {uid}: {e}") from e
 
         if not rows:
             return None
@@ -248,8 +266,9 @@ class GraphExploreRepository:
     ) -> list[dict]:
         """Search nodes by name (case-insensitive contains)."""
         if label:
+            validated_label = _validate_label(label)
             cypher = (
-                f"MATCH (n:{label}) WHERE toLower(n.name) CONTAINS toLower($q) "
+                f"MATCH (n:{validated_label}) WHERE toLower(n.name) CONTAINS toLower($q) "
                 "RETURN n, labels(n)[0] AS label LIMIT $limit"
             )
         else:
@@ -261,7 +280,7 @@ class GraphExploreRepository:
         try:
             rows = self._client.run_query(cypher, {"q": query, "limit": limit})
         except Exception as e:
-            raise RepositoryException(f"Node search failed: {e}")
+            raise RepositoryException(f"Node search failed: {e}") from e
 
         results = []
         for row in rows:

@@ -20,7 +20,7 @@ def embed_text(text: str) -> list[float]:
         embeddings = get_embeddings()
         return embeddings.embed_query(text.replace("\n", " "))
     except Exception as e:
-        raise ServiceException(f"Embedding failed: {e}")
+        raise ServiceException(f"Embedding failed: {e}") from e
 
 
 def embed_batch(texts: list[str], batch_size: int = 6) -> list[list[float]]:
