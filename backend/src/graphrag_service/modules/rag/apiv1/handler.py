@@ -13,7 +13,7 @@ from loguru import logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import ServiceException
 
-from ..schemas import EdgeOut, QueryRequest, QueryResponse, SeedNodeOut
+from ..schemas import EdgeOut, PipelineMetadata, QueryRequest, QueryResponse, SeedNodeOut
 from ..usecase import RAGUseCase
 
 router = APIRouter()
@@ -31,31 +31,52 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
     usecase = RAGUseCase(client)
 
     t0 = time.time()
+    settings = get_settings()
     try:
         result = usecase.query(req.question)
         subgraph = result.get("subgraph", {})
         latency_ms = int((time.time() - t0) * 1000)
 
+        seed_nodes_out = [
+            SeedNodeOut(
+                id=s["id"], label=s["label"], name=s["name"], score=s["score"]
+            )
+            for s in subgraph.get("seed_nodes", [])
+        ]
+        nodes_out = subgraph.get("nodes", [])
+        edges_out = [
+            EdgeOut(
+                from_id=e["from_id"],
+                to_id=e["to_id"],
+                type=e["type"],
+                properties=e.get("properties", {}),
+            )
+            for e in subgraph.get("edges", [])
+        ]
+
+        metadata = PipelineMetadata(
+            llm_provider=settings.LLM_PROVIDER,
+            llm_model=settings.LLM_MODEL,
+            embedding_provider=settings.EMBEDDING_PROVIDER,
+            embedding_model=settings.EMBEDDING_MODEL,
+            embedding_dim=settings.EMBEDDING_DIM,
+            top_k=settings.TOP_K_SEED_NODES,
+            traversal_depth=settings.TRAVERSAL_DEPTH,
+            seed_count=len(seed_nodes_out),
+            node_count=len(nodes_out),
+            edge_count=len(edges_out),
+            context_length=len(result.get("context", "")),
+            step_timings=result.get("step_timings", {}),
+        )
+
         response = QueryResponse(
             answer=result["answer"],
-            seed_nodes=[
-                SeedNodeOut(
-                    id=s["id"], label=s["label"], name=s["name"], score=s["score"]
-                )
-                for s in subgraph.get("seed_nodes", [])
-            ],
-            nodes=subgraph.get("nodes", []),
-            edges=[
-                EdgeOut(
-                    from_id=e["from_id"],
-                    to_id=e["to_id"],
-                    type=e["type"],
-                    properties=e.get("properties", {}),
-                )
-                for e in subgraph.get("edges", [])
-            ],
+            seed_nodes=seed_nodes_out,
+            nodes=nodes_out,
+            edges=edges_out,
             cypher_used=subgraph.get("cypher_used", ""),
             latency_ms=latency_ms,
+            metadata=metadata,
         )
         logger.bind(
             latency_ms=latency_ms,

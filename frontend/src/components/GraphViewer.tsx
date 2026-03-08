@@ -12,15 +12,14 @@ interface GraphViewerProps {
 }
 
 const NODE_COLORS: Record<string, string> = {
-  Paper: "#3b82f6",
-  Method: "#22c55e",
-  Task: "#a855f7",
-  Dataset: "#f97316",
+  Paper: "#3b82f6",   // blue
+  Method: "#22c55e",  // green
+  Task: "#a855f7",    // purple
+  Dataset: "#f97316", // orange
 };
 
-const SEED_COLOR = "#f97316";
 const DEFAULT_COLOR = "#64748b";
-const REL_COLOR = "rgba(148, 163, 184, 0.4)";
+const REL_COLOR = "rgba(148, 163, 184, 0.5)";
 
 export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphViewerProps) {
   const nvlRef = useRef(null);
@@ -32,11 +31,12 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
         const isSeed = seedNodeIds.has(id);
         const label = n.label || "";
         const name = n.name || n.title || id;
+        const color = NODE_COLORS[label] ?? DEFAULT_COLOR;
 
         return {
           id,
-          size: isSeed ? 30 : 20,
-          color: isSeed ? SEED_COLOR : (NODE_COLORS[label] ?? DEFAULT_COLOR),
+          size: isSeed ? 35 : 22,
+          color,
           caption: name.length > 28 ? name.slice(0, 26) + "\u2026" : name,
           activated: isSeed,
         };
@@ -52,7 +52,7 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
         to: e.to_id,
         caption: e.type,
         color: REL_COLOR,
-        width: 1,
+        width: 1.5,
       })),
     [edges],
   );
@@ -85,8 +85,15 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
     );
   }
 
+  // Compute label distribution for legend
+  const labelCounts: Record<string, number> = {};
+  for (const n of nodes) {
+    const lbl = n.label || "Unknown";
+    labelCounts[lbl] = (labelCounts[lbl] || 0) + 1;
+  }
+
   return (
-    <div className="w-full h-full nvl-container">
+    <div className="w-full h-full nvl-container relative">
       <InteractiveNvlWrapper
         ref={nvlRef}
         nodes={nvlNodes}
@@ -105,6 +112,24 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
           onLayoutDone: handleLayoutDone,
         }}
       />
+
+      {/* Legend */}
+      <div className="absolute bottom-3 left-3 flex flex-col gap-1 px-2.5 py-2 rounded-lg border border-border/50 bg-card/90 backdrop-blur-sm shadow-sm">
+        {Object.entries(labelCounts).map(([label, count]) => (
+          <div key={label} className="flex items-center gap-2 text-[10px]">
+            <div
+              className="w-2.5 h-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: NODE_COLORS[label] ?? DEFAULT_COLOR }}
+            />
+            <span className="text-foreground/80 font-medium">{label}</span>
+            <span className="text-muted-foreground/60 tabular-nums">{count}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 text-[10px] pt-0.5 border-t border-border/30">
+          <div className="w-2.5 h-2.5 rounded-full shrink-0 border-2 border-foreground/40 bg-transparent" />
+          <span className="text-muted-foreground">= seed node (larger)</span>
+        </div>
+      </div>
     </div>
   );
 }

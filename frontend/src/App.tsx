@@ -5,7 +5,7 @@ import { CypherPanel } from "@/components/CypherPanel";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { queryGraph } from "@/lib/api";
 import { ApiError } from "@/types/api";
-import type { SeedNode, GraphNode, GraphEdge } from "@/types/api";
+import type { SeedNode, GraphNode, GraphEdge, PipelineMetadata } from "@/types/api";
 import { AlertCircle, Network } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { StatusBadges } from "@/components/StatusBadges";
@@ -26,6 +26,7 @@ export default function App() {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [cypher, setCypher] = useState("");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [metadata, setMetadata] = useState<PipelineMetadata | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const handleSubmit = async (question: string) => {
@@ -37,6 +38,7 @@ export default function App() {
     setEdges([]);
     setCypher("");
     setLatencyMs(null);
+    setMetadata(null);
     setSelectedNodeId(null);
 
     try {
@@ -47,6 +49,7 @@ export default function App() {
       setEdges(response.edges);
       setCypher(response.cypher_used);
       setLatencyMs(response.latency_ms);
+      setMetadata(response.metadata);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(`API error (${err.statusCode}): ${err.detail}`);
@@ -113,6 +116,7 @@ export default function App() {
               seedNodes={seedNodes}
               isLoading={isLoading}
               latencyMs={latencyMs ?? undefined}
+              metadata={metadata}
               exampleQuestions={EXAMPLE_QUESTIONS}
             />
           </div>

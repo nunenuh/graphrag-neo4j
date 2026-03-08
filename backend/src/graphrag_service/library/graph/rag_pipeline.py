@@ -32,6 +32,7 @@ class RAGState(TypedDict):
     subgraph: dict
     context: str
     answer: str
+    step_timings: dict[str, float]
 
 
 def build_rag_graph(
@@ -44,12 +45,22 @@ def build_rag_graph(
 ) -> StateGraph:
     """Build the RAG pipeline graph with injected functions."""
 
+    def _record_timing(state: RAGState, step: str, duration_ms: float) -> dict:
+        """Merge a step timing into the accumulated timings dict."""
+        existing = dict(state.get("step_timings") or {})
+        existing[step] = duration_ms
+        return existing
+
     def embed_step(state: RAGState) -> dict:
+        t0 = time.perf_counter()
         vector = _timed("embed", embed_fn, state["question"])
-        return {"query_vector": vector}
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+        return {"query_vector": vector, "step_timings": _record_timing(state, "embed", ms)}
 
     def search_step(state: RAGState) -> dict:
+        t0 = time.perf_counter()
         results = _timed("vector_search", search_fn, state["query_vector"], top_k)
+        ms = round((time.perf_counter() - t0) * 1000, 1)
         seeds = [
             {
                 "id": r.id,
@@ -61,12 +72,14 @@ def build_rag_graph(
             for r in results
         ]
         logger.bind(count=len(seeds), top_scores=[s["score"] for s in seeds[:3]]).info("vector_search.results")
-        return {"seed_nodes": seeds}
+        return {"seed_nodes": seeds, "step_timings": _record_timing(state, "vector_search", ms)}
 
     def traverse_step(state: RAGState) -> dict:
         ids = [s["id"] for s in state["seed_nodes"]]
         logger.bind(seed_count=len(ids)).info("traverse.input")
+        t0 = time.perf_counter()
         nodes_dict, edges_list = _timed("traverse", traverse_fn, ids)
+        ms = round((time.perf_counter() - t0) * 1000, 1)
         logger.bind(nodes=len(nodes_dict), edges=len(edges_list)).info("traverse.results")
         return {
             "subgraph": {
@@ -74,23 +87,28 @@ def build_rag_graph(
                 "nodes": list(nodes_dict.values()),
                 "edges": edges_list,
                 "cypher_used": "neomodel VectorFilter + 2-hop traversal",
-            }
+            },
+            "step_timings": _record_timing(state, "traverse", ms),
         }
 
     def context_step(state: RAGState) -> dict:
+        t0 = time.perf_counter()
         context = _timed(
             "build_context",
             build_context_fn,
             state["seed_nodes"],
             state["subgraph"].get("edges", []),
         )
+        ms = round((time.perf_counter() - t0) * 1000, 1)
         logger.bind(context_len=len(context)).info("build_context.results")
-        return {"context": context}
+        return {"context": context, "step_timings": _record_timing(state, "build_context", ms)}
 
     def generate_step(state: RAGState) -> dict:
+        t0 = time.perf_counter()
         answer = _timed("generate", generate_fn, state["question"], state["context"])
+        ms = round((time.perf_counter() - t0) * 1000, 1)
         logger.bind(answer_len=len(answer)).info("generate.results")
-        return {"answer": answer}
+        return {"answer": answer, "step_timings": _record_timing(state, "generate", ms)}
 
     graph = StateGraph(RAGState)
     graph.add_node("embed", embed_step)
