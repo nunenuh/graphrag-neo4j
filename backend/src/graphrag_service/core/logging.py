@@ -44,10 +44,18 @@ def _shorten_name(name: str) -> str:
     return ".".join(p for p in parts if p not in _SKIP_PARTS) or name
 
 
-def _dev_format(record: dict) -> str:
-    """Custom dev format: compact, aligned, colored."""
+def _dev_sink(message) -> None:
+    """Custom dev sink: compact, aligned, colored.
+
+    Uses a sink function instead of a format function to avoid loguru's
+    format_map processing, which chokes on messages containing literal
+    curly braces (e.g. watchfiles change detection logs).
+    """
+    record = message.record
     module = _shorten_name(record["name"])
     event = record["message"]
+    level = record["level"]
+    time_str = record["time"].strftime("%H:%M:%S")
 
     # Extra key=value pairs from loguru's extra dict
     extra = record.get("extra", {})
@@ -56,28 +64,47 @@ def _dev_format(record: dict) -> str:
         if k.startswith("_"):
             continue
         if isinstance(v, float):
-            kv_parts.append(f"<dim>{k}</dim>=<cyan>{v:.1f}</cyan>")
+            kv_parts.append(f"\033[2m{k}\033[0m=\033[36m{v:.1f}\033[0m")
         elif isinstance(v, str) and len(v) > 80:
-            kv_parts.append(f'<dim>{k}</dim>=<cyan>"{v[:77]}..."</cyan>')
+            kv_parts.append(f'\033[2m{k}\033[0m=\033[36m"{v[:77]}..."\033[0m')
         else:
-            kv_parts.append(f"<dim>{k}</dim>=<cyan>{v}</cyan>")
+            kv_parts.append(f"\033[2m{k}\033[0m=\033[36m{v}\033[0m")
     kv_str = " ".join(kv_parts)
 
-    # Escape braces so loguru's format_map doesn't choke on messages
-    # containing literal { } (e.g. watchfiles change detection logs)
-    safe_module = module.replace("{", "{{").replace("}", "}}")
-    safe_event = event.replace("{", "{{").replace("}", "}}")
-    safe_kv = kv_str.replace("{", "{{").replace("}", "}}")
+    # Level colors
+    level_colors = {
+        "DEBUG": "\033[34m",    # blue
+        "INFO": "\033[34;1m",   # bold blue
+        "WARNING": "\033[33m",  # yellow
+        "ERROR": "\033[31m",    # red
+        "CRITICAL": "\033[31;1m",  # bold red
+    }
+    color = level_colors.get(level.name, "\033[0m")
+    reset = "\033[0m"
+    dim = "\033[2m"
+    bold = "\033[1m"
 
-    return (
-        "<dim>{time:HH:mm:ss}</dim> "
-        "<level>{level: <8}</level> "
-        f"<dim>{safe_module:<22}</dim>"
-        "<level>|</level> "
-        f"<bold>{safe_event:<32}</bold> "
-        f"{safe_kv}"
-        "\n{exception}"
+    line = (
+        f"{dim}{time_str}{reset} "
+        f"{color}{level.name:<8}{reset} "
+        f"{dim}{module:<22}{reset}"
+        f"{color}|{reset} "
+        f"{bold}{event:<32}{reset} "
+        f"{kv_str}"
     )
+    sys.stdout.write(line + "\n")
+
+    # Print exception if present
+    if record["exception"] is not None:
+        import traceback
+        tb = "".join(
+            traceback.format_exception(
+                record["exception"].type,
+                record["exception"].value,
+                record["exception"].traceback,
+            )
+        )
+        sys.stdout.write(tb)
 
 
 def _json_format(record: dict) -> str:
@@ -124,10 +151,9 @@ def setup_logging() -> None:
         )
     else:
         logger.add(
-            sys.stdout,
-            format=_dev_format,
+            _dev_sink,
             level=log_level,
-            colorize=True,
+            colorize=False,
         )
 
     # Intercept stdlib logging -> loguru
