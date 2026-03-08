@@ -35,29 +35,37 @@ class GraphService:
         # __file__ is modules/graph/services.py → go up 6 levels to project root
         return Path(__file__).parent.parent.parent.parent.parent.parent / settings.DATA_DIR
 
-    def load_papers(self) -> Iterator[dict]:
+    def load_papers(
+        self, offset: int = 0, limit: int = 0
+    ) -> Iterator[dict]:
         """Load and parse papers using library functions."""
         settings = get_settings()
         data = load_json(self.data_dir() / "papers.json")
-        return iter_papers(data, max_papers=settings.MAX_PAPERS)
+        return iter_papers(data, max_papers=settings.MAX_PAPERS, offset=offset, limit=limit)
 
-    def load_methods(self) -> Iterator[dict]:
+    def load_methods(
+        self, offset: int = 0, limit: int = 0
+    ) -> Iterator[dict]:
         """Load and parse methods using library functions."""
         settings = get_settings()
         data = load_json(self.data_dir() / "methods.json")
-        return iter_methods(data, max_items=settings.MAX_METHODS)
+        return iter_methods(data, max_items=settings.MAX_METHODS, offset=offset, limit=limit)
 
-    def load_tasks(self) -> Iterator[dict]:
+    def load_tasks(
+        self, offset: int = 0, limit: int = 0
+    ) -> Iterator[dict]:
         """Load and parse tasks using library functions."""
         settings = get_settings()
         data = load_json(self.data_dir() / "tasks.json")
-        return iter_tasks(data, max_items=settings.MAX_TASKS)
+        return iter_tasks(data, max_items=settings.MAX_TASKS, offset=offset, limit=limit)
 
-    def load_datasets(self) -> Iterator[dict]:
+    def load_datasets(
+        self, offset: int = 0, limit: int = 0
+    ) -> Iterator[dict]:
         """Load and parse datasets using library functions."""
         settings = get_settings()
         data = load_json(self.data_dir() / "datasets.json")
-        return iter_datasets(data, max_items=settings.MAX_DATASETS)
+        return iter_datasets(data, max_items=settings.MAX_DATASETS, offset=offset, limit=limit)
 
     def load_evaluations(self) -> list:
         """Load evaluation data from JSON."""

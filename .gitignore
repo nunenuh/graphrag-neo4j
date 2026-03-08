@@ -211,3 +211,4 @@ node_modules/
 .next/
 *.json.gz
 data/*.json
+data/.ingest_progress.json

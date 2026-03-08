@@ -4,6 +4,7 @@ Graph use case orchestration layer.
 Coordinates service (logic) + repository (DB).
 """
 
+from pathlib import Path
 from typing import List, Tuple
 
 from tqdm import tqdm
@@ -14,6 +15,12 @@ from graphrag_service.core.config import get_settings
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.dbase.neo4j.models import Dataset, Method, Paper, Task
 
+from .checkpoint import (
+    IngestCheckpoint,
+    NodeTypeProgress,
+    load_checkpoint,
+    save_checkpoint,
+)
 from .repositories import GraphExploreRepository, NodeRepository, SchemaRepository
 from .services import GraphService
 
@@ -31,6 +38,7 @@ class GraphUseCase:
     """Orchestrates graph operations — coordinates service (logic) + repository (DB)."""
 
     def __init__(self, client: Neo4jClient):
+        self._client = client
         self.service = GraphService()
         self.schema_repo = SchemaRepository(client)
         self.node_repo = NodeRepository(client)
@@ -60,27 +68,133 @@ class GraphUseCase:
         """Search nodes by name."""
         return self.explore_repo.search_nodes(query, label=label, limit=limit)
 
-    def ingest_nodes(self) -> None:
-        """Ingest all entities: service parses data + embeds, repository writes to DB."""
+    def ingest_nodes(
+        self,
+        *,
+        node_type: str | None = None,
+        offset: int = 0,
+        limit: int = 0,
+        resume: bool = False,
+        skip_embedded: bool = False,
+        checkpoint_path: Path | None = None,
+    ) -> None:
+        """Ingest entities with progress tracking and resume support.
+
+        Args:
+            node_type: Only ingest this label (e.g. "Paper"). None = all.
+            offset: Skip this many valid items before processing.
+            limit: Process at most this many items (0 = unlimited).
+            resume: If True, skip node types already marked completed in checkpoint.
+            skip_embedded: If True, skip embedding for nodes that already have one.
+            checkpoint_path: Override default checkpoint file path.
+        """
         settings = get_settings()
         batch_size = settings.INGEST_BATCH_SIZE
 
-        for model, loader_name in NODE_MODEL_LOADERS:
+        checkpoint = load_checkpoint(checkpoint_path) if resume else IngestCheckpoint()
+
+        loaders = NODE_MODEL_LOADERS
+        if node_type:
+            loaders = [
+                (m, ln) for m, ln in NODE_MODEL_LOADERS if m.__label__ == node_type
+            ]
+            if not loaders:
+                valid = [m.__label__ for m, _ in NODE_MODEL_LOADERS]
+                raise ValueError(
+                    f"Unknown node type '{node_type}'. Valid: {', '.join(valid)}"
+                )
+
+        embedded_cache: dict[str, set[str]] = {}
+
+        for model, loader_name in loaders:
+            label = model.__label__
+            progress = checkpoint.get_or_create(label)
+
+            if resume and progress.completed:
+                logger.info(f"Skipping {label} — already completed in checkpoint")
+                continue
+
+            if skip_embedded:
+                embedded_cache[label] = self.node_repo.get_embedded_uids(label)
+                logger.info(
+                    f"{label}: {len(embedded_cache[label])} nodes already embedded"
+                )
+
             loader = getattr(self.service, loader_name)
-            logger.info(f"Ingesting {model.__label__}s...")
+            logger.info(f"Ingesting {label}s (offset={offset}, limit={limit})...")
+
             batch: list[dict] = []
-            for node in tqdm(loader(), desc=model.__label__):
+            for node in tqdm(loader(offset=offset, limit=limit), desc=label):
                 batch.append(node)
                 if len(batch) == batch_size:
-                    texts = self.service.prepare_embed_texts(batch)
-                    embeddings = self.service.embed_nodes(texts)
-                    self.node_repo.upsert_batch(model, batch, embeddings)
+                    self._process_batch(
+                        model, batch, skip_embedded, embedded_cache.get(label, set()),
+                        progress,
+                    )
+                    save_checkpoint(checkpoint, checkpoint_path)
                     batch = []
+
             if batch:
-                texts = self.service.prepare_embed_texts(batch)
-                embeddings = self.service.embed_nodes(texts)
-                self.node_repo.upsert_batch(model, batch, embeddings)
-            logger.info(f"{model.__label__} ingestion done")
+                self._process_batch(
+                    model, batch, skip_embedded, embedded_cache.get(label, set()),
+                    progress,
+                )
+
+            progress.mark_completed()
+            save_checkpoint(checkpoint, checkpoint_path)
+            logger.info(
+                f"{label} done — {progress.total_upserted} upserted, "
+                f"{progress.skipped_existing} skipped"
+            )
+
+    def _process_batch(
+        self,
+        model: type,
+        batch: list[dict],
+        skip_embedded: bool,
+        embedded_uids: set[str],
+        progress: NodeTypeProgress,
+    ) -> None:
+        """Embed and upsert a single batch, optionally skipping already-embedded nodes."""
+        if skip_embedded:
+            need_embed = [n for n in batch if n["uid"] not in embedded_uids]
+            already = len(batch) - len(need_embed)
+        else:
+            need_embed = batch
+            already = 0
+
+        if need_embed:
+            texts = self.service.prepare_embed_texts(need_embed)
+            embeddings = self.service.embed_nodes(texts)
+            self.node_repo.upsert_batch(model, need_embed, embeddings)
+
+        # Upsert nodes that already have embeddings (without re-embedding)
+        skip_nodes = [n for n in batch if n["uid"] in embedded_uids] if skip_embedded else []
+        if skip_nodes:
+            # Use zero vectors as placeholder — the MERGE won't overwrite existing embedding
+            # because _get_upsert_cypher sets all props including embedding.
+            # Instead, upsert without embedding by using a separate query.
+            self._upsert_without_embedding(model, skip_nodes)
+
+        progress.mark_batch(len(batch), skipped=already)
+
+    def _upsert_without_embedding(
+        self, model: type, nodes: list[dict]
+    ) -> None:
+        """Upsert nodes without overwriting their existing embedding."""
+        label = model.__label__
+        props = [
+            k for k, v in model.defined_properties(aliases=False, rels=False).items()
+            if k != "embedding"
+        ]
+        set_parts = [f"n.{p} = row.{p}" for p in props]
+        set_clause = ", ".join(set_parts)
+        cypher = (
+            f"UNWIND $rows AS row "
+            f"MERGE (n:{label} {{uid: row.uid}}) "
+            f"SET {set_clause}"
+        )
+        self._client.run_query(cypher, {"rows": nodes})
 
     def ingest_relationships(self) -> None:
         """Ingest relationships: service loads data, repository writes to DB."""
