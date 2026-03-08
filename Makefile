@@ -222,6 +222,12 @@ cli-status: ## Check graph status via CLI
 cli-health: ## Health check via CLI
 	cd backend && $(POETRY) run cli health check
 
+cli-eval: check-env check-neo4j ## Run evaluation suite
+	cd backend && $(POETRY) run cli eval run --output results/eval_report.json --markdown
+
+cli-eval-queries: ## List evaluation queries
+	cd backend && $(POETRY) run cli eval queries
+
 # ──────────────────────────────────────────────
 # Testing & quality
 # ──────────────────────────────────────────────

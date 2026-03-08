@@ -53,6 +53,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from graphrag_service.cli.evaluate import get_eval_app
+
+    app.add_typer(get_eval_app(), name="eval")
+except ImportError:
+    pass
+
 
 def main():
     """Main CLI entry point."""
@@ -83,6 +90,9 @@ def main():
                 click.echo("    run                Run analytics pipeline")
                 click.echo("    communities        Show detected communities")
                 click.echo("    trends             Show trending methods/tasks")
+                click.echo("  eval                 Evaluation framework commands")
+                click.echo("    run                Run evaluation suite")
+                click.echo("    queries            List evaluation queries")
                 click.echo("\nUse 'cli <command> --help' for more information")
                 sys.exit(0)
             raise
