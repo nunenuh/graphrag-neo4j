@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Loader2, Sparkles, Clock } from "lucide-react";
-import type { SeedNode } from "@/types/api";
+import { Send, Loader2, Sparkles, Clock, Brain, Search, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import type { SeedNode, PipelineMetadata } from "@/types/api";
 
 const BADGE_COLORS: Record<string, string> = {
   Paper: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
@@ -17,6 +17,7 @@ interface ChatPanelProps {
   seedNodes: SeedNode[];
   isLoading: boolean;
   latencyMs?: number;
+  metadata: PipelineMetadata | null;
   exampleQuestions: string[];
 }
 
@@ -26,9 +27,11 @@ export function ChatPanel({
   seedNodes,
   isLoading,
   latencyMs,
+  metadata,
   exampleQuestions,
 }: ChatPanelProps) {
   const [question, setQuestion] = useState("");
+  const [showMetadata, setShowMetadata] = useState(true);
 
   const handleSubmit = (q: string) => {
     if (!q.trim()) return;
@@ -98,10 +101,104 @@ export function ChatPanel({
             <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/90">
               {answer}
             </p>
-            {latencyMs !== undefined && (
-              <div className="flex items-center gap-1 text-[11px] text-muted-foreground/70">
-                <Clock size={10} />
-                <span className="tabular-nums">{latencyMs}ms</span>
+
+            {/* Pipeline Metadata */}
+            {(latencyMs !== undefined || metadata) && (
+              <div className="pt-2 border-t border-border/30 space-y-2">
+                <button
+                  onClick={() => setShowMetadata((v) => !v)}
+                  className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showMetadata ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  <span>Pipeline Details</span>
+                  {latencyMs !== undefined && (
+                    <span className="ml-auto tabular-nums font-normal normal-case tracking-normal text-muted-foreground/70">
+                      {latencyMs >= 1000 ? `${(latencyMs / 1000).toFixed(1)}s` : `${latencyMs}ms`}
+                    </span>
+                  )}
+                </button>
+
+                {showMetadata && metadata && (
+                  <div className="space-y-2.5 text-[11px]">
+                    {/* Models */}
+                    <div className="flex items-start gap-2">
+                      <Brain size={11} className="text-purple-500 mt-0.5 shrink-0" />
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">LLM:</span>
+                          <span className="font-medium text-foreground/90">{metadata.llm_model}</span>
+                          <span className="text-muted-foreground/60">({metadata.llm_provider})</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">Embed:</span>
+                          <span className="font-medium text-foreground/90">{metadata.embedding_model}</span>
+                          <span className="text-muted-foreground/60">({metadata.embedding_provider}, {metadata.embedding_dim}d)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Graph stats */}
+                    <div className="flex items-start gap-2">
+                      <GitBranch size={11} className="text-emerald-500 mt-0.5 shrink-0" />
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span>
+                          <span className="text-muted-foreground">Seeds:</span>{" "}
+                          <span className="font-medium tabular-nums">{metadata.seed_count}</span>
+                          <span className="text-muted-foreground/60"> / top-{metadata.top_k}</span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">Nodes:</span>{" "}
+                          <span className="font-medium tabular-nums">{metadata.node_count}</span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">Edges:</span>{" "}
+                          <span className="font-medium tabular-nums">{metadata.edge_count}</span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">Depth:</span>{" "}
+                          <span className="font-medium tabular-nums">{metadata.traversal_depth}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Context */}
+                    <div className="flex items-start gap-2">
+                      <FileText size={11} className="text-blue-500 mt-0.5 shrink-0" />
+                      <span>
+                        <span className="text-muted-foreground">Context:</span>{" "}
+                        <span className="font-medium tabular-nums">{metadata.context_length.toLocaleString()}</span>
+                        <span className="text-muted-foreground/60"> chars</span>
+                      </span>
+                    </div>
+
+                    {/* Step timings */}
+                    {Object.keys(metadata.step_timings).length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <Zap size={11} className="text-amber-500 mt-0.5 shrink-0" />
+                        <div className="flex-1 space-y-1">
+                          {Object.entries(metadata.step_timings).map(([step, ms]) => {
+                            const totalMs = latencyMs || Object.values(metadata.step_timings).reduce((a, b) => a + b, 0);
+                            const pct = totalMs > 0 ? (ms / totalMs) * 100 : 0;
+                            return (
+                              <div key={step} className="flex items-center gap-2">
+                                <span className="text-muted-foreground w-24 shrink-0">{step.replace(/_/g, " ")}</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-primary/50"
+                                    style={{ width: `${Math.min(pct, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="tabular-nums font-medium w-16 text-right shrink-0">
+                                  {ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

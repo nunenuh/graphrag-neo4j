@@ -41,6 +41,23 @@ export interface GraphEdge {
   properties: Record<string, string>;
 }
 
+// Pipeline metadata for evaluation
+
+export interface PipelineMetadata {
+  llm_provider: string;
+  llm_model: string;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dim: number;
+  top_k: number;
+  traversal_depth: number;
+  seed_count: number;
+  node_count: number;
+  edge_count: number;
+  context_length: number;
+  step_timings: Record<string, number>;
+}
+
 // Main response
 
 export interface QueryResponse {
@@ -50,6 +67,7 @@ export interface QueryResponse {
   edges: GraphEdge[];
   cypher_used: string;
   latency_ms: number;
+  metadata: PipelineMetadata | null;
 }
 
 // /api/v1/graph/schema

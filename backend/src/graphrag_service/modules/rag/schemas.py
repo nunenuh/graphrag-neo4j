@@ -29,6 +29,26 @@ class EdgeOut(BaseModel):
     properties: dict = Field(default_factory=dict, description="Edge properties")
 
 
+class PipelineMetadata(BaseModel):
+    """Detailed pipeline execution metadata for evaluation."""
+
+    llm_provider: str = Field(..., description="LLM provider name")
+    llm_model: str = Field(..., description="LLM model name")
+    embedding_provider: str = Field(..., description="Embedding provider name")
+    embedding_model: str = Field(..., description="Embedding model name")
+    embedding_dim: int = Field(..., description="Embedding dimension")
+    top_k: int = Field(..., description="Top-K seed nodes requested")
+    traversal_depth: int = Field(..., description="Graph traversal depth")
+    seed_count: int = Field(..., description="Number of seed nodes found")
+    node_count: int = Field(..., description="Total nodes in subgraph")
+    edge_count: int = Field(..., description="Total edges in subgraph")
+    context_length: int = Field(..., description="Context string length in characters")
+    step_timings: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-step durations in ms (embed, vector_search, traverse, build_context, generate)",
+    )
+
+
 class QueryResponse(BaseModel):
     """RAG query response with answer and graph context."""
 
@@ -42,3 +62,6 @@ class QueryResponse(BaseModel):
     )
     cypher_used: str = Field(..., description="Cypher query used for traversal")
     latency_ms: int = Field(..., description="Total latency in milliseconds")
+    metadata: PipelineMetadata | None = Field(
+        None, description="Detailed pipeline execution metadata"
+    )
