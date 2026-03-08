@@ -19,9 +19,9 @@ def get_eval_app() -> typer.Typer:
 
     @app.command()
     def run(
-        category: str = typer.Option("", help="Run only this category (e.g. FACTUAL_LOOKUP)"),
-        output: str = typer.Option("", help="Output JSON file path"),
-        markdown: bool = typer.Option(False, help="Also output markdown report"),
+        category: str = typer.Option("", "--category", help="Run only this category (e.g. FACTUAL_LOOKUP)"),
+        output: str = typer.Option("", "--output", help="Output JSON file path"),
+        markdown: bool = typer.Option(False, "--markdown", help="Also output markdown report"),
     ):
         """Run evaluation suite against the RAG pipeline."""
         # Import here to avoid circular imports and loading models at CLI parse time
@@ -75,7 +75,7 @@ def get_eval_app() -> typer.Typer:
 
     @app.command()
     def queries(
-        category: str = typer.Option("", help="Filter by category"),
+        category: str = typer.Option("", "--category", help="Filter by category"),
     ):
         """List all evaluation queries."""
         from tests.evaluation.queries import CATEGORIES, get_all_queries, get_queries_by_category

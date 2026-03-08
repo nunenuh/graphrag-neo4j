@@ -42,19 +42,19 @@ def get_graph_app() -> typer.Typer:
     @app.command()
     def ingest(
         node_type: Optional[str] = typer.Option(
-            None, "--type", "-t",
+            None, "--type",
             help="Only ingest this node type (Paper, Method, Task, Dataset).",
         ),
         offset: int = typer.Option(
-            0, "--offset", "-o",
+            0, "--offset",
             help="Skip this many valid items before processing.",
         ),
         limit: int = typer.Option(
-            0, "--limit", "-l",
+            0, "--limit",
             help="Process at most this many items (0 = unlimited).",
         ),
         resume: bool = typer.Option(
-            False, "--resume", "-r",
+            False, "--resume",
             help="Resume from last checkpoint, skipping completed node types.",
         ),
         skip_embedded: bool = typer.Option(
