@@ -38,6 +38,7 @@ networkx = "^3.2"
 cdlib = "^0.4"
 igraph = "^0.11"
 leidenalg = "^0.10"
+tiktoken = "^0.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

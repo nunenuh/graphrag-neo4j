@@ -77,7 +77,22 @@ class Settings(BaseSettings):
     TOP_K_SEED_NODES: int = Field(
         default=5, description="Number of seed nodes for vector search"
     )
-    TRAVERSAL_DEPTH: int = Field(default=2, description="Graph traversal depth")
+    TRAVERSAL_DEPTH: int = Field(default=2, description="Graph traversal depth (2-4)")
+    CONTEXT_BUDGET_TOKENS: int = Field(
+        default=8000, description="Max tokens for LLM context"
+    )
+    GRAPH_CONTEXT_PCT: float = Field(
+        default=0.40, description="Fraction of context budget for graph data"
+    )
+    TEXT_CONTEXT_PCT: float = Field(
+        default=0.40, description="Fraction of context budget for text data"
+    )
+    SUMMARY_CONTEXT_PCT: float = Field(
+        default=0.20, description="Fraction of context budget for summary"
+    )
+    ENABLE_PROVENANCE: bool = Field(
+        default=True, description="Enable post-synthesis provenance validation"
+    )
 
     # Entity Resolution Settings
     ER_SIMILARITY_THRESHOLD: float = Field(

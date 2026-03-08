@@ -66,6 +66,10 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
             node_count=len(nodes_out),
             edge_count=len(edges_out),
             context_length=len(result.get("context", "")),
+            query_type=result.get("query_type", ""),
+            retrieval_strategy=result.get("retrieval_strategy", ""),
+            provenance_score=result.get("provenance_score"),
+            unsupported_claims=result.get("unsupported_claims", []),
             step_timings=result.get("step_timings", {}),
         )
 

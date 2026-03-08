@@ -43,9 +43,15 @@ class PipelineMetadata(BaseModel):
     node_count: int = Field(..., description="Total nodes in subgraph")
     edge_count: int = Field(..., description="Total edges in subgraph")
     context_length: int = Field(..., description="Context string length in characters")
+    query_type: str = Field(default="", description="Classified query type")
+    retrieval_strategy: str = Field(default="", description="Retrieval strategy used")
+    provenance_score: float | None = Field(None, description="Answer groundedness score (0-1)")
+    unsupported_claims: list[str] = Field(
+        default_factory=list, description="Claims not supported by context"
+    )
     step_timings: dict[str, float] = Field(
         default_factory=dict,
-        description="Per-step durations in ms (embed, vector_search, traverse, build_context, generate)",
+        description="Per-step durations in ms",
     )
 
 
