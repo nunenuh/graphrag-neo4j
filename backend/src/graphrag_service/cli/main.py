@@ -46,6 +46,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from graphrag_service.modules.analytics.cli.commands import get_analytics_app
+
+    app.add_typer(get_analytics_app(), name="analytics")
+except ImportError:
+    pass
+
 
 def main():
     """Main CLI entry point."""
@@ -72,6 +79,10 @@ def main():
                 click.echo("    ingest             Ingest authors from PwC data")
                 click.echo("    resolve            Run entity resolution")
                 click.echo("    stats              Show ER statistics")
+                click.echo("  analytics            Graph analytics commands")
+                click.echo("    run                Run analytics pipeline")
+                click.echo("    communities        Show detected communities")
+                click.echo("    trends             Show trending methods/tasks")
                 click.echo("\nUse 'cli <command> --help' for more information")
                 sys.exit(0)
             raise

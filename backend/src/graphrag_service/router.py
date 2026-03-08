@@ -5,6 +5,7 @@ Main API router that aggregates all service endpoints.
 from fastapi import APIRouter, Depends
 
 from .core.auth import get_api_key
+from .modules.analytics.apiv1.handler import router as analytics_router
 from .modules.entity_resolution.apiv1.handler import router as er_router
 from .modules.graph.apiv1.handler import router as graph_router
 from .modules.health.apiv1.handler import router as health_router
@@ -24,4 +25,7 @@ api_router.include_router(
 )
 api_router.include_router(
     er_router, prefix="/v1/er", tags=["Entity Resolution"], dependencies=[Depends(get_api_key)]
+)
+api_router.include_router(
+    analytics_router, prefix="/v1/analytics", tags=["Analytics"], dependencies=[Depends(get_api_key)]
 )
