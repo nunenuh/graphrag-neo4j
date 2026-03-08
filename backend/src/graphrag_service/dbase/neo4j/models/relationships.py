@@ -4,7 +4,7 @@ Neo4j relationship models for the GraphRAG knowledge graph.
 Uses neomodel StructuredRel for typed relationship properties.
 """
 
-from neomodel import StringProperty, StructuredRel
+from neomodel import IntegerProperty, StringProperty, StructuredRel
 
 
 class UsedForRel(StructuredRel):
@@ -18,3 +18,13 @@ class EvaluatedOnRel(StructuredRel):
 
     metric = StringProperty()
     score = StringProperty()
+
+
+class AuthoredRel(StructuredRel):
+    """Author -[:AUTHORED]-> Paper relationship.
+
+    Properties:
+        order: Author position in the paper's author list (0-based).
+    """
+
+    order = IntegerProperty()

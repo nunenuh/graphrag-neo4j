@@ -129,13 +129,14 @@ There is **no monolithic router** with all endpoints. Each module owns its own `
 
 ## Endpoint Summary
 
-| Method | Full Path | Module | Handler |
-|--------|-----------|--------|---------|
-| `GET` | `/api/v1/health/ping` | health | `modules/health/apiv1/handler.py` |
-| `GET` | `/api/v1/health/status` | health | `modules/health/apiv1/handler.py` |
-| `GET` | `/api/v1/graph/schema` | graph | `modules/graph/apiv1/handler.py` |
-| `GET` | `/api/v1/graph/explore` | graph | `modules/graph/apiv1/handler.py` |
-| `POST` | `/api/v1/rag/query` | rag | `modules/rag/apiv1/handler.py` |
+| Method | Full Path | Module | Auth | Handler |
+|--------|-----------|--------|------|---------|
+| `GET` | `/api/v1/health/ping` | health | None | `modules/health/apiv1/handler.py` |
+| `GET` | `/api/v1/health/neo4j` | health | None | `modules/health/apiv1/handler.py` |
+| `GET` | `/api/v1/health/status` | health | None | `modules/health/apiv1/handler.py` |
+| `GET` | `/api/v1/graph/schema` | graph | X-API-Key | `modules/graph/apiv1/handler.py` |
+| `GET` | `/api/v1/graph/explore` | graph | X-API-Key | `modules/graph/apiv1/handler.py` |
+| `POST` | `/api/v1/rag/query` | rag | X-API-Key | `modules/rag/apiv1/handler.py` |
 
 ---
 
@@ -150,6 +151,12 @@ class PingResponse(BaseModel):
     status: str
     timestamp: datetime
     message: str
+
+class Neo4jPingResponse(BaseModel):
+    status: str                          # "healthy" | "unhealthy"
+    message: str
+    response_time_ms: float
+    timestamp: datetime
 
 class ComponentHealth(BaseModel):
     name: str
@@ -192,7 +199,7 @@ class GraphExploreResponse(BaseModel):
 
 ```python
 class QueryRequest(BaseModel):
-    question: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=2000)
 
 class SeedNodeOut(BaseModel):
     id: str
@@ -206,6 +213,20 @@ class EdgeOut(BaseModel):
     type: str
     properties: dict = Field(default_factory=dict)
 
+class PipelineMetadata(BaseModel):
+    llm_provider: str
+    llm_model: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_dim: int
+    top_k: int
+    traversal_depth: int
+    seed_count: int
+    node_count: int
+    edge_count: int
+    context_length: int
+    step_timings: dict[str, float] = Field(default_factory=dict)  # step → ms
+
 class QueryResponse(BaseModel):
     answer: str
     seed_nodes: list[SeedNodeOut]
@@ -213,6 +234,7 @@ class QueryResponse(BaseModel):
     edges: list[EdgeOut]
     cypher_used: str
     latency_ms: int
+    metadata: PipelineMetadata | None = None
 ```
 
 **Model Rules:**
@@ -233,15 +255,26 @@ Each module follows the pattern: handler imports a `UseCase` class, instantiates
 from graphrag_service.core.config import get_settings
 from graphrag_service.core.logging import get_logger
 
-from ..schemas import HealthStatusResponse, PingResponse
+from ..schemas import HealthStatusResponse, Neo4jPingResponse, PingResponse
 from ..usecase import HealthUseCase
 
-logger = get_logger(__name__)
 router = APIRouter()
+_health_usecase = HealthUseCase()
 
 @router.get("/ping", response_model=PingResponse)
 async def ping():
     return PingResponse(status="ok", timestamp=datetime.now(UTC), message="pong")
+
+@router.get("/neo4j", response_model=Neo4jPingResponse)
+async def neo4j_ping():
+    """Check Neo4j connectivity independently."""
+    component = _health_usecase.service.check_neo4j()
+    return Neo4jPingResponse(
+        status=component.status,
+        message=component.message or "",
+        response_time_ms=component.response_time_ms or 0,
+        timestamp=datetime.now(UTC),
+    )
 
 @router.get("/status", response_model=HealthStatusResponse)
 async def get_health_status():
@@ -292,24 +325,47 @@ from graphrag_service.core.dependencies import get_neo4j_client
 from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 
-from ..schemas import EdgeOut, QueryRequest, QueryResponse, SeedNodeOut
+from ..schemas import EdgeOut, PipelineMetadata, QueryRequest, QueryResponse, SeedNodeOut
 from ..usecase import RAGUseCase
 
-logger = get_logger(__name__)
 router = APIRouter()
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_client)):
     usecase = RAGUseCase(client)
+    settings = get_settings()
     t0 = time.time()
-    answer, sg = usecase.query(req.question)
+    result = usecase.query(req.question)
+    subgraph = result.get("subgraph", {})
+    latency_ms = int((time.time() - t0) * 1000)
+
+    seed_nodes_out = [SeedNodeOut(...) for s in subgraph.get("seed_nodes", [])]
+    nodes_out = subgraph.get("nodes", [])
+    edges_out = [EdgeOut(...) for e in subgraph.get("edges", [])]
+
+    metadata = PipelineMetadata(
+        llm_provider=settings.LLM_PROVIDER,
+        llm_model=settings.LLM_MODEL,
+        embedding_provider=settings.EMBEDDING_PROVIDER,
+        embedding_model=settings.EMBEDDING_MODEL,
+        embedding_dim=settings.EMBEDDING_DIM,
+        top_k=settings.TOP_K_SEED_NODES,
+        traversal_depth=settings.TRAVERSAL_DEPTH,
+        seed_count=len(seed_nodes_out),
+        node_count=len(nodes_out),
+        edge_count=len(edges_out),
+        context_length=len(result.get("context", "")),
+        step_timings=result.get("step_timings", {}),
+    )
+
     return QueryResponse(
-        answer=answer,
-        seed_nodes=[SeedNodeOut(id=s.id, label=s.label, name=s.name, score=s.score) for s in sg.seed_nodes],
-        nodes=sg.nodes,
-        edges=[EdgeOut(from_id=e.from_id, to_id=e.to_id, type=e.type, properties=e.properties) for e in sg.edges],
-        cypher_used=sg.cypher_used,
-        latency_ms=int((time.time() - t0) * 1000),
+        answer=result["answer"],
+        seed_nodes=seed_nodes_out,
+        nodes=nodes_out,
+        edges=edges_out,
+        cypher_used=subgraph.get("cypher_used", ""),
+        latency_ms=latency_ms,
+        metadata=metadata,
     )
 ```
 
@@ -470,10 +526,11 @@ Use as a dependency: `Depends(get_api_key)`. The API key is set via `APP_X_API_K
 
 ## Logging — `core/logging.py`
 
-- Uses **structlog** for structured logging
-- Development: `ConsoleRenderer()` at DEBUG level
-- Production: `JSONRenderer()` at INFO level
-- Get a logger anywhere: `from graphrag_service.core.logging import get_logger; logger = get_logger(__name__)`
+- Uses **loguru** for structured logging
+- Development: colorized console output at DEBUG level
+- Production: JSON output at INFO level
+- Get a logger: `from loguru import logger`
+- Structured context via `logger.bind(key=value).info("message")`
 - Third-party loggers (uvicorn, fastapi, neo4j) set to WARNING
 
 ---
@@ -494,10 +551,16 @@ Key settings (loaded from env vars via `pydantic-settings`):
 | `NEO4J_URI` | `"bolt://localhost:7687"` | Neo4j bolt URI |
 | `NEO4J_USER` | `"neo4j"` | Neo4j username |
 | `NEO4J_PASSWORD` | `"password123"` | Neo4j password |
-| `OPENAI_API_KEY` | `""` | OpenAI API key |
+| `LLM_PROVIDER` | `"openai"` | LLM provider (openai\|google\|ollama\|qwen) |
+| `LLM_MODEL` | `"gpt-4o-mini"` | LLM model name |
+| `EMBEDDING_PROVIDER` | `"openai"` | Embedding provider (openai\|google\|ollama\|qwen) |
 | `EMBEDDING_MODEL` | `"text-embedding-3-small"` | Embedding model |
 | `EMBEDDING_DIM` | `1536` | Embedding dimension |
-| `LLM_MODEL` | `"gpt-4o-mini"` | LLM model |
+| `OPENAI_API_KEY` | `""` | OpenAI API key |
+| `GOOGLE_API_KEY` | `""` | Google API key |
+| `QWEN_API_KEY` | `""` | Qwen / DashScope API key |
+| `QWEN_BASE_URL` | `"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"` | Qwen base URL |
+| `OLLAMA_BASE_URL` | `"http://localhost:11434"` | Ollama base URL |
 | `TOP_K_SEED_NODES` | `5` | Vector search top-k |
 | `TRAVERSAL_DEPTH` | `2` | Graph traversal depth |
 

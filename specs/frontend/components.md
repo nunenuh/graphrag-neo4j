@@ -10,21 +10,23 @@ See also: [[projects/graphrag-neo4j/docs/technical/adr/adr-003-shadcn-ui-over-al
 
 ```
 App.tsx                          ← Root layout, state owner
-├── ChatPanel.tsx                ← Question input + answer display
-│   ├── ui/input.tsx             ← shadcn Input
-│   ├── ui/button.tsx            ← shadcn Button
+├── StatusBadges.tsx             ← Live API + Neo4j health badges (polls /health/ping + /health/neo4j)
+├── ThemeToggle.tsx              ← Dark/light mode toggle (localStorage-persisted)
+├── ChatPanel.tsx                ← Question input + answer display + pipeline metadata
 │   ├── ui/scroll-area.tsx       ← shadcn ScrollArea
 │   └── ui/badge.tsx             ← shadcn Badge (seed node labels)
-├── GraphViewer.tsx              ← Force-directed graph canvas
-│   ├── react-force-graph-2d     ← Canvas renderer
-│   └── ui/tooltip.tsx           ← shadcn Tooltip (node hover)
+├── GraphViewer.tsx              ← Interactive force-directed graph (Neo4j NVL)
+│   └── @neo4j-nvl/react         ← InteractiveNvlWrapper (canvas renderer, drag-enabled)
+├── NodeDetailPanel.tsx          ← Slide-in panel showing full node metadata on click
+│   ├── ui/badge.tsx             ← shadcn Badge
+│   └── ui/scroll-area.tsx       ← shadcn ScrollArea
 └── CypherPanel.tsx              ← Collapsible Cypher query display
     └── ui/collapsible.tsx       ← shadcn Collapsible
 ```
 
 ---
 
-## Setup: shadcn/ui
+## Setup: shadcn/ui + Neo4j NVL
 
 Install components before building:
 
@@ -35,8 +37,10 @@ cd frontend
 npx shadcn@latest init
 
 # 2. Add all components used in this project
-npx shadcn@latest add card button badge input
-npx shadcn@latest add collapsible scroll-area tooltip
+npx shadcn@latest add badge collapsible scroll-area
+
+# 3. Install Neo4j NVL for graph visualization
+npm install @neo4j-nvl/react @neo4j-nvl/interaction-handlers
 ```
 
 Generated components live in `src/components/ui/`. **Do not edit these files** unless customizing a component permanently — treat them as owned source code, not library files.
@@ -80,23 +84,23 @@ export function ChatPanel({ onSubmit, answer }: { onSubmit: (q: string) => void;
 
 ```typescript
 /**
- * ChatPanel — question input + answer display + seed node badges
+ * ChatPanel — question input + answer display + seed node badges + pipeline metadata
  *
  * Props:
- *   onSubmit    — called when user submits a question
- *   answer      — LLM-generated answer string (empty = no answer yet)
- *   seedNodes   — vector search results to show as badges
- *   isLoading   — true while query is in flight
- *   latencyMs   — response time in ms (shown when answer is available)
- *   exampleQuestions — 4 pre-seeded example questions
+ *   onSubmit          — called when user submits a question
+ *   answer            — LLM-generated answer string (empty = no answer yet)
+ *   seedNodes         — vector search results to show as badges
+ *   isLoading         — true while query is in flight
+ *   latencyMs         — total response time in ms
+ *   metadata          — PipelineMetadata with model info, graph stats, step timings
+ *   exampleQuestions  — 4 pre-seeded example questions
  */
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { SeedNode } from "@/types/api";
+import { Send, Loader2, Sparkles, Brain, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import type { SeedNode, PipelineMetadata } from "@/types/api";
 
 interface ChatPanelProps {
   onSubmit: (question: string) => void;
@@ -104,102 +108,32 @@ interface ChatPanelProps {
   seedNodes: SeedNode[];
   isLoading: boolean;
   latencyMs?: number;
+  metadata: PipelineMetadata | null;
   exampleQuestions: string[];
-}
-
-const BADGE_COLORS: Record<string, string> = {
-  Paper: "bg-blue-100 text-blue-800",
-  Method: "bg-green-100 text-green-800",
-  Task: "bg-purple-100 text-purple-800",
-  Dataset: "bg-orange-100 text-orange-800",
-};
-
-export function ChatPanel({
-  onSubmit,
-  answer,
-  seedNodes,
-  isLoading,
-  latencyMs,
-  exampleQuestions,
-}: ChatPanelProps) {
-  const [question, setQuestion] = useState("");
-
-  const handleSubmit = (q: string) => {
-    if (!q.trim()) return;
-    setQuestion(q);
-    onSubmit(q.trim());
-  };
-
-  return (
-    <div className="flex flex-col gap-4 h-full">
-      {/* Example questions */}
-      <div className="flex flex-wrap gap-2">
-        {exampleQuestions.map((eq) => (
-          <Button
-            key={eq}
-            variant="outline"
-            size="sm"
-            onClick={() => handleSubmit(eq)}
-            disabled={isLoading}
-          >
-            {eq}
-          </Button>
-        ))}
-      </div>
-
-      {/* Input row */}
-      <div className="flex gap-2">
-        <Input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit(question)}
-          placeholder="Ask a question about ML research..."
-          disabled={isLoading}
-        />
-        <Button onClick={() => handleSubmit(question)} disabled={isLoading || !question.trim()}>
-          {isLoading ? "Thinking..." : "Ask"}
-        </Button>
-      </div>
-
-      {/* Seed node badges */}
-      {seedNodes.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-muted-foreground mr-1">Seed nodes:</span>
-          {seedNodes.map((sn) => (
-            <Badge
-              key={sn.id}
-              className={BADGE_COLORS[sn.label] ?? ""}
-              variant="secondary"
-            >
-              {sn.name} ({sn.score.toFixed(2)})
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {/* Answer */}
-      {answer && (
-        <ScrollArea className="flex-1 rounded-md border p-4">
-          <p className="text-sm whitespace-pre-wrap">{answer}</p>
-          {latencyMs !== undefined && (
-            <p className="text-xs text-muted-foreground mt-2">{latencyMs}ms</p>
-          )}
-        </ScrollArea>
-      )}
-    </div>
-  );
 }
 ```
 
-**Badge colors per node type:**
-| Label | Color |
-|-------|-------|
-| `Paper` | Blue |
-| `Method` | Green |
-| `Task` | Purple |
-| `Dataset` | Orange |
+**Sections in ChatPanel:**
+1. **Example questions** — shown when no answer/loading, styled as subtle pill buttons
+2. **Loading indicator** — centered spinner with "Searching knowledge graph..."
+3. **Seed node badges** — colored by type with similarity score
+4. **Answer** — in a ScrollArea with collapsible "Pipeline Details" below
+5. **Pipeline Details** (collapsible) — shows:
+   - LLM model/provider and embedding model/provider/dimension
+   - Graph stats: seed count / top-K, total nodes, edges, traversal depth
+   - Context length in characters
+   - Per-step timing bars (embed, vector_search, traverse, build_context, generate)
+6. **Input row** — custom inline input with embedded send button (not shadcn Button+Input)
 
-**Seed nodes in graph** (highlighted separately in `GraphViewer`): orange border/glow
+**Badge colors per node type:**
+| Label | Tailwind Classes |
+|-------|-----------------|
+| `Paper` | `bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20` |
+| `Method` | `bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20` |
+| `Task` | `bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20` |
+| `Dataset` | `bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20` |
+
+**Seed nodes in graph** (highlighted in `GraphViewer`): larger size (35px vs 22px) + `activated` state
 
 ---
 
@@ -207,22 +141,26 @@ export function ChatPanel({
 
 ```typescript
 /**
- * GraphViewer — force-directed graph visualization using react-force-graph-2d
+ * GraphViewer — interactive force-directed graph using @neo4j-nvl/react
  *
  * Props:
  *   nodes        — all subgraph nodes
  *   edges        — all subgraph edges
- *   seedNodeIds  — IDs of seed nodes (rendered with orange highlight)
+ *   seedNodeIds  — IDs of seed nodes (rendered larger with activated state)
+ *   onNodeSelect — callback when a node is clicked (null = canvas click)
  */
 
-import { useRef, useEffect, useState, useCallback } from "react";
-import ForceGraph2D from "react-force-graph-2d";
+import { useRef, useMemo, useCallback } from "react";
+import { InteractiveNvlWrapper } from "@neo4j-nvl/react";
+import type { Node, Relationship, HitTargets } from "@neo4j-nvl/base";
+import type { MouseEventCallbacks } from "@neo4j-nvl/react";
 import type { GraphNode, GraphEdge } from "@/types/api";
 
 interface GraphViewerProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   seedNodeIds: Set<string>;
+  onNodeSelect?: (nodeId: string | null) => void;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -232,97 +170,26 @@ const NODE_COLORS: Record<string, string> = {
   Dataset: "#f97316",  // orange-500
 };
 
-const SEED_COLOR = "#f97316"; // orange — seed node highlight
-const DEFAULT_COLOR = "#94a3b8"; // slate-400 — fallback
-
-export function GraphViewer({ nodes, edges, seedNodeIds }: GraphViewerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
-
-  // Measure container on mount and resize
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        setDimensions({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height,
-        });
-      }
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  // Transform to react-force-graph-2d format
-  const graphData = {
-    nodes: nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      name: n.name || n.title || n.id,
-      isSeed: seedNodeIds.has(n.id),
-    })),
-    links: edges.map((e) => ({
-      source: e.from_id,
-      target: e.to_id,
-      type: e.type,
-    })),
-  };
-
-  const nodeColor = useCallback((node: any) => {
-    if (node.isSeed) return SEED_COLOR;
-    return NODE_COLORS[node.label] ?? DEFAULT_COLOR;
-  }, []);
-
-  const nodeLabel = useCallback((node: any) => {
-    return `${node.label}: ${node.name}`;
-  }, []);
-
-  return (
-    <div ref={containerRef} className="w-full h-full">
-      <ForceGraph2D
-        width={dimensions.width}
-        height={dimensions.height}
-        graphData={graphData}
-        nodeColor={nodeColor}
-        nodeLabel={nodeLabel}
-        nodeRelSize={5}
-        linkLabel={(link: any) => link.type}
-        linkDirectionalArrowLength={4}
-        linkDirectionalArrowRelPos={1}
-        backgroundColor="#0f172a"  // slate-900 (dark background)
-        nodeCanvasObjectMode={() => "after"}
-        nodeCanvasObject={(node: any, ctx, globalScale) => {
-          // Draw seed node ring
-          if (node.isSeed) {
-            ctx.beginPath();
-            ctx.arc(node.x!, node.y!, 7, 0, 2 * Math.PI);
-            ctx.strokeStyle = SEED_COLOR;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
-          // Draw node label when zoomed in
-          if (globalScale >= 1.5) {
-            const label = node.name;
-            ctx.font = `${10 / globalScale}px Sans-Serif`;
-            ctx.fillStyle = "#ffffff";
-            ctx.textAlign = "center";
-            ctx.fillText(label, node.x!, node.y! + 10);
-          }
-        }}
-      />
-    </div>
-  );
-}
+const DEFAULT_COLOR = "#64748b"; // slate-500 — fallback
+const REL_COLOR = "rgba(148, 163, 184, 0.5)";
 ```
 
 **GraphViewer Rules:**
-- Use `ResizeObserver` (not hardcoded dimensions) — the container may resize
-- Seed nodes get an orange ring highlight (`nodeCanvasObject`)
-- Node labels render only when `globalScale >= 1.5` (avoid clutter)
-- Canvas background: `#0f172a` (dark) — contrasts with colored nodes
-- `react-force-graph-2d` is canvas-based — no CSS interference from shadcn/ui
+- Uses `@neo4j-nvl/react` `InteractiveNvlWrapper` — supports drag, pan, zoom natively
+- Nodes colored by **type** (Paper=blue, Method=green, Task=purple, Dataset=orange) — NOT by seed status
+- Seed nodes differentiated by larger size (35px vs 22px) and `activated: true`
+- Node ID prefers `uid` over `id`: `n.uid || n.id || ""`
+- Canvas background: `hsl(var(--graph-bg))` — theme-aware (light/dark)
+- NVL options: `layout: "forceDirected"`, `renderer: "canvas"`
+- `onNodeClick` triggers `onNodeSelect(nodeId)` for NodeDetailPanel
+- `onCanvasClick` triggers `onNodeSelect(null)` to deselect
+- **Legend overlay** in bottom-left corner showing node type colors with counts and seed indicator
+
+**NVL type interfaces:**
+- `Node`: `{ id, color?, size?, caption?, activated?, selected?, pinned? }`
+- `Relationship`: `{ id, from, to, caption?, color?, width? }`
+- `NvlOptions`: `{ layout, initialZoom, renderer, styling: { defaultNodeColor, defaultRelationshipColor } }`
+- `MouseEventCallbacks` imported from `@neo4j-nvl/react` (not `@neo4j-nvl/interaction-handlers`)
 
 ---
 
@@ -374,19 +241,73 @@ export function CypherPanel({ cypher }: CypherPanelProps) {
 
 ---
 
+## `NodeDetailPanel.tsx`
+
+Slide-in panel overlaid on the graph area (absolute positioned). Shows full node metadata when a graph node is clicked.
+
+**Props:**
+- `node: GraphNode` — the selected node
+- `edges: GraphEdge[]` — all subgraph edges (to find connected relationships)
+- `allNodes: GraphNode[]` — all nodes (for relationship name lookups)
+- `isSeed: boolean` — whether this node is a seed node
+- `onClose: () => void` — close handler
+- `onNodeSelect: (id: string) => void` — navigate to a connected node
+
+**Sections:**
+1. Header with type icon + name + label badge + seed indicator
+2. Type-specific metadata fields:
+   - Paper: title, abstract, year, URL (clickable)
+   - Method: full_name, description
+   - Task: area, description
+   - Dataset: description, modalities
+3. Extra properties (catch-all for any additional fields)
+4. UID reference
+5. Relationships (outgoing/incoming) — clickable to navigate to connected nodes
+
+**Position:** `absolute top-3 right-3 bottom-3 w-72 z-20`
+
+---
+
+## `StatusBadges.tsx`
+
+Live health check badges in the header. Polls backend API and Neo4j independently.
+
+**Behavior:**
+- On mount and every 30s, pings `GET /api/v1/health/ping` then `GET /api/v1/health/neo4j`
+- If backend unreachable: both badges show red
+- If backend ok but Neo4j down: API=green, Neo4j=red
+- Neo4j badge shows latency on hover via `title` attribute
+
+**States:** `loading` (yellow pulse), `healthy` (green), `unhealthy` (red)
+
+---
+
+## `ThemeToggle.tsx`
+
+Dark/light mode toggle button with Sun/Moon icons.
+
+**Behavior:**
+- Reads initial theme from `localStorage.getItem("theme")` or system preference
+- Toggles `dark` class on `document.documentElement`
+- Persists choice to localStorage
+- Flash prevention: inline script in `index.html` applies dark class before React hydrates
+
+---
+
 ## shadcn/ui Component Usage Rules
 
 | shadcn Component | Where Used | Key Props |
 |-----------------|------------|-----------|
-| `Card` | Panel containers in `App.tsx` | `className="h-full"` for full-height |
-| `Input` | Question input in `ChatPanel` | `onKeyDown` for Enter key submit |
-| `Button` | Submit + example questions | `disabled={isLoading}` |
-| `Badge` | Seed node type labels | Custom `className` for color override |
+| `Badge` | Seed node labels, NodeDetailPanel type badge | Custom `className` for color override |
 | `Collapsible` | Cypher panel | `open` + `onOpenChange` controlled |
-| `ScrollArea` | Answer scroll | Wrap answer text |
-| `Tooltip` | Node hover in graph | Wrap `ForceGraph2D` container |
+| `ScrollArea` | Answer scroll, NodeDetailPanel content | Wrap scrollable areas |
 
-**Tailwind class rule**: Use Tailwind classes directly. Do not write custom CSS files unless absolutely necessary (shadcn's CSS variables handle theming).
+**Other UI notes:**
+- ChatPanel uses custom `<input>` + `<button>` (not shadcn Input/Button) for the embedded send button design
+- GraphViewer uses `@neo4j-nvl/react` InteractiveNvlWrapper (not shadcn)
+- StatusBadges and ThemeToggle use plain HTML elements + Tailwind + lucide-react icons
+
+**Tailwind class rule**: Use Tailwind classes directly. Custom CSS is minimal — only for NVL container sizing, scrollbar styling, and CSS variable theming in `index.css`.
 
 ---
 

@@ -144,13 +144,17 @@ frontend/                        # Independent React app
 └── src/
     ├── App.tsx
     ├── main.tsx
+    ├── index.css              # Tailwind + CSS variables (light/dark themes)
     ├── components/
-    │   ├── ui/
-    │   ├── ChatPanel.tsx
-    │   ├── GraphViewer.tsx
-    │   └── CypherPanel.tsx
-    ├── lib/api.ts
-    └── types/api.ts
+    │   ├── ui/                # shadcn/ui generated components
+    │   ├── ChatPanel.tsx      # Question input + answer + pipeline metadata
+    │   ├── GraphViewer.tsx    # Neo4j NVL interactive graph + legend
+    │   ├── CypherPanel.tsx    # Collapsible Cypher query display
+    │   ├── NodeDetailPanel.tsx # Slide-in node metadata panel
+    │   ├── StatusBadges.tsx   # Live API + Neo4j health badges
+    │   └── ThemeToggle.tsx    # Dark/light mode toggle
+    ├── lib/api.ts             # API client (fetch wrapper + X-API-Key auth)
+    └── types/api.ts           # TypeScript types mirroring backend API
 ```
 
 ---

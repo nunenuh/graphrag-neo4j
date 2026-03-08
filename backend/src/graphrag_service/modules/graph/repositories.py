@@ -47,7 +47,6 @@ def _get_upsert_cypher(model: type[StructuredNode]) -> str:
             k for k, v in model.defined_properties(aliases=False, rels=False).items()
         ]
         set_parts = [f"n.{p} = row.{p}" for p in props]
-        set_parts.append("n.embedding = row.embedding")
         set_clause = ", ".join(set_parts)
         UPSERT_TEMPLATES[label] = (
             f"UNWIND $rows AS row "

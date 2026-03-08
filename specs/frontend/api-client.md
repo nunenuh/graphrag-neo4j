@@ -34,50 +34,56 @@ TypeScript types that mirror the backend API spec **exactly**. When the API spec
  * Source of truth: docs/technical/api-spec.md
  */
 
-// ─────────────────────────────────────────────
 // Shared types
-// ─────────────────────────────────────────────
-
 export type NodeLabel = "Paper" | "Method" | "Task" | "Dataset";
 
-// ─────────────────────────────────────────────
 // Request
-// ─────────────────────────────────────────────
-
 export interface QueryRequest {
   question: string;
 }
 
-// ─────────────────────────────────────────────
 // Response sub-types
-// ─────────────────────────────────────────────
-
 export interface SeedNode {
   id: string;
   label: NodeLabel;
   name: string;
-  score: number;  // 0.0 – 1.0, cosine similarity
+  score: number;
 }
 
 export interface GraphNode {
   id: string;
+  uid?: string;          // Backend returns uid as primary ID
   label: NodeLabel;
-  name: string;    // For Method / Task / Dataset
-  title: string;   // For Paper
-  description: string;
+  name: string;
+  title?: string;
+  description?: string;
+  [key: string]: unknown; // Extra properties per node type
 }
 
 export interface GraphEdge {
   from_id: string;
   to_id: string;
-  type: string;    // "INTRODUCES" | "APPLIED_ON" | "EVALUATED_ON" | ...
-  properties: Record<string, string>;  // e.g. { metric: "mAP", score: "45.5" }
+  type: string;
+  properties: Record<string, string>;
 }
 
-// ─────────────────────────────────────────────
-// Main response
-// ─────────────────────────────────────────────
+// Pipeline metadata for evaluation
+export interface PipelineMetadata {
+  llm_provider: string;
+  llm_model: string;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dim: number;
+  top_k: number;
+  traversal_depth: number;
+  seed_count: number;
+  node_count: number;
+  edge_count: number;
+  context_length: number;
+  step_timings: Record<string, number>; // step name → ms
+}
 
+// Main response
 export interface QueryResponse {
   answer: string;
   seed_nodes: SeedNode[];
@@ -85,61 +91,60 @@ export interface QueryResponse {
   edges: GraphEdge[];
   cypher_used: string;
   latency_ms: number;
+  metadata: PipelineMetadata | null;
 }
 
-// ─────────────────────────────────────────────
-// /api/graph/schema
-// ─────────────────────────────────────────────
-
+// /api/v1/graph/schema
 export interface SchemaResponse {
   node_labels: NodeLabel[];
   relationship_types: string[];
 }
 
-// ─────────────────────────────────────────────
-// /api/graph/explore
-// ─────────────────────────────────────────────
+// /api/v1/graph/explore
+export interface ExploreNode { id: string; name: string; label: NodeLabel; }
+export interface ExploreEdge { from_id: string; to_id: string; type: string; }
+export interface ExploreResponse { nodes: ExploreNode[]; edges: ExploreEdge[]; }
 
-export interface ExploreNode {
-  id: string;
+// /api/v1/health/ping
+export interface PingResponse {
+  status: string;
+  timestamp: string;
+  message: string;
+}
+
+// /api/v1/health/neo4j
+export interface Neo4jPingResponse {
+  status: "healthy" | "unhealthy";
+  message: string;
+  response_time_ms: number;
+  timestamp: string;
+}
+
+// /api/v1/health/status
+export interface ComponentHealth {
   name: string;
-  label: NodeLabel;
+  status: "healthy" | "unhealthy";
+  message: string | null;
+  response_time_ms: number | null;
 }
-
-export interface ExploreEdge {
-  from_id: string;
-  to_id: string;
-  type: string;
-}
-
-export interface ExploreResponse {
-  nodes: ExploreNode[];
-  edges: ExploreEdge[];
-}
-
-// ─────────────────────────────────────────────
-// /api/health
-// ─────────────────────────────────────────────
-
-export type Neo4jStatus = "connected" | "error";
 
 export interface HealthResponse {
-  status: "ok";
-  neo4j: Neo4jStatus;
+  status: "healthy" | "unhealthy";
+  timestamp: string;
   version: string;
+  components: ComponentHealth[];
+  uptime_seconds: number;
 }
 
-// ─────────────────────────────────────────────
 // Client-side error type
-// ─────────────────────────────────────────────
-
 export class ApiError extends Error {
-  constructor(
-    public statusCode: number,
-    public detail: string,
-  ) {
+  statusCode: number;
+  detail: string;
+  constructor(statusCode: number, detail: string) {
     super(detail);
     this.name = "ApiError";
+    this.statusCode = statusCode;
+    this.detail = detail;
   }
 }
 ```
@@ -161,6 +166,8 @@ export class ApiError extends Error {
 import type {
   ExploreResponse,
   HealthResponse,
+  Neo4jPingResponse,
+  PingResponse,
   QueryResponse,
   SchemaResponse,
 } from "@/types/api";
@@ -170,7 +177,8 @@ import { ApiError } from "@/types/api";
 // Base URL
 // ─────────────────────────────────────────────
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
+const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 
 // ─────────────────────────────────────────────
 // Core fetch helper
@@ -185,6 +193,7 @@ async function apiFetch<T>(
   const response = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
+      ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
       ...options.headers,
     },
     ...options,
@@ -218,44 +227,30 @@ async function apiFetch<T>(
  * @throws ApiError if the request fails
  */
 export async function queryGraph(question: string): Promise<QueryResponse> {
-  return apiFetch<QueryResponse>("/api/query", {
+  return apiFetch<QueryResponse>("/api/v1/rag/query", {
     method: "POST",
     body: JSON.stringify({ question }),
   });
 }
 
-/**
- * GET /api/graph/schema
- *
- * Fetch all node labels and relationship types.
- *
- * @throws ApiError if the request fails
- */
 export async function fetchSchema(): Promise<SchemaResponse> {
-  return apiFetch<SchemaResponse>("/api/graph/schema");
+  return apiFetch<SchemaResponse>("/api/v1/graph/schema");
 }
 
-/**
- * GET /api/graph/explore
- *
- * Fetch a sample subgraph for initial visualization.
- *
- * @param limit - Max number of relationships to return (default 50, max 200)
- * @throws ApiError if the request fails
- */
 export async function exploreGraph(limit = 50): Promise<ExploreResponse> {
-  return apiFetch<ExploreResponse>(`/api/graph/explore?limit=${limit}`);
+  return apiFetch<ExploreResponse>(`/api/v1/graph/explore?limit=${limit}`);
 }
 
-/**
- * GET /api/health
- *
- * Check API and Neo4j health.
- *
- * @throws ApiError if the request fails
- */
+export async function pingBackend(): Promise<PingResponse> {
+  return apiFetch<PingResponse>("/api/v1/health/ping");
+}
+
+export async function pingNeo4j(): Promise<Neo4jPingResponse> {
+  return apiFetch<Neo4jPingResponse>("/api/v1/health/neo4j");
+}
+
 export async function checkHealth(): Promise<HealthResponse> {
-  return apiFetch<HealthResponse>("/api/health");
+  return apiFetch<HealthResponse>("/api/v1/health/status");
 }
 ```
 
@@ -294,16 +289,19 @@ try {
 
 ```bash
 # frontend/.env  (development)
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://localhost:8005
+VITE_API_KEY=changeme-in-production   # Same value as APP_X_API_KEY
 
 # frontend/.env.production
 VITE_API_URL=https://your-api-domain.com
+VITE_API_KEY=your-production-api-key
 ```
 
 **Rules:**
 - All Vite env vars **must** be prefixed with `VITE_`
 - Access with `import.meta.env.VITE_API_URL` — NOT `process.env.*`
-- Provide a fallback in `api.ts`: `?? "http://localhost:8000"` for local dev without `.env`
+- `VITE_API_URL` defaults to `""` (empty) when using Vite dev proxy
+- `VITE_API_KEY` is sent as `X-API-Key` header on all requests (matching backend `APP_X_API_KEY`)
 - Never commit `.env` files with secrets — `.env.example` only
 
 ---

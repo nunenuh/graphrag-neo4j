@@ -67,3 +67,42 @@ def iter_datasets(data: list, max_items: int = 0) -> Iterator[dict]:
             "description": (d.get("description") or "")[:1000],
             "modalities": ", ".join(d.get("modalities") or []),
         }
+
+
+def iter_authors(data: list, max_papers: int = 5000) -> Iterator[dict]:
+    """Extract unique author names from papers JSON.
+
+    Each author gets a uid derived from the normalized name.
+    Yields dicts with keys: uid, name.
+    De-duplicates by stripped name across all papers.
+    """
+    seen: set[str] = set()
+    for p in data[:max_papers]:
+        for raw_name in p.get("authors") or []:
+            name = raw_name.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            yield {"uid": f"author:{name.lower().replace(' ', '_')}", "name": name}
+
+
+def iter_author_paper_edges(
+    data: list, max_papers: int = 5000
+) -> Iterator[dict]:
+    """Extract author-paper edges from papers JSON.
+
+    Yields dicts with keys: author_name, paper_uid, order.
+    """
+    for p in data[:max_papers]:
+        if not p.get("title") or not p.get("abstract"):
+            continue
+        paper_uid = p.get("paper_url", p.get("id", ""))
+        for order, raw_name in enumerate(p.get("authors") or []):
+            name = raw_name.strip()
+            if not name:
+                continue
+            yield {
+                "author_name": name,
+                "paper_uid": paper_uid,
+                "order": order,
+            }
