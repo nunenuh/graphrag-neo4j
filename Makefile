@@ -216,6 +216,12 @@ cli-schema: check-neo4j ## Create schema via CLI
 cli-ingest: check-env check-neo4j ## Run ingestion via CLI
 	cd backend && $(POETRY) run cli graph ingest
 
+cli-ingest-resume: check-env check-neo4j ## Resume ingestion from last checkpoint
+	cd backend && $(POETRY) run cli graph ingest --resume --skip-embedded
+
+cli-ingest-status: ## Show ingestion progress
+	cd backend && $(POETRY) run cli graph ingest-status
+
 cli-status: ## Check graph status via CLI
 	cd backend && $(POETRY) run cli graph status
 

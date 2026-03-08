@@ -114,6 +114,20 @@ class NodeRepository:
     def __init__(self, client: Neo4jClient):
         self._client = client
 
+    def get_embedded_uids(self, label: str) -> set[str]:
+        """Return UIDs of nodes that already have an embedding vector."""
+        validated = _validate_label(label)
+        try:
+            rows = self._client.run_query(
+                f"MATCH (n:{validated}) WHERE n.embedding IS NOT NULL "
+                "RETURN collect(n.uid) AS uids"
+            )
+            return set(rows[0]["uids"]) if rows else set()
+        except Exception as e:
+            raise RepositoryException(
+                f"Failed to get embedded UIDs for {label}: {e}"
+            ) from e
+
     def upsert_batch(
         self,
         model: type[StructuredNode],

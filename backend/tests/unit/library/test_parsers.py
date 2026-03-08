@@ -48,6 +48,36 @@ class TestIterPapers:
         assert results[0]["abstract"] == "Abstract"
 
 
+    def test_offset(self):
+        data = [{"title": f"P{i}", "abstract": f"A{i}"} for i in range(5)]
+        results = list(iter_papers(data, offset=2))
+        assert len(results) == 3
+        assert results[0]["title"] == "P2"
+
+    def test_limit(self):
+        data = [{"title": f"P{i}", "abstract": f"A{i}"} for i in range(5)]
+        results = list(iter_papers(data, limit=2))
+        assert len(results) == 2
+
+    def test_offset_and_limit(self):
+        data = [{"title": f"P{i}", "abstract": f"A{i}"} for i in range(10)]
+        results = list(iter_papers(data, offset=3, limit=2))
+        assert len(results) == 2
+        assert results[0]["title"] == "P3"
+        assert results[1]["title"] == "P4"
+
+    def test_offset_skips_invalid(self):
+        data = [
+            {"title": "P0", "abstract": "A0"},
+            {"title": "", "abstract": "A1"},  # invalid, skipped by parser
+            {"title": "P2", "abstract": "A2"},
+            {"title": "P3", "abstract": "A3"},
+        ]
+        results = list(iter_papers(data, offset=1))
+        assert len(results) == 2
+        assert results[0]["title"] == "P2"
+
+
 class TestIterMethods:
     def test_basic(self):
         data = [{"name": "ResNet", "id": "m1", "description": "A method"}]
@@ -75,6 +105,12 @@ class TestIterMethods:
         results = list(iter_methods(data))
         assert results[0]["uid"] == "Test"
 
+    def test_offset_and_limit(self):
+        data = [{"name": f"M{i}"} for i in range(10)]
+        results = list(iter_methods(data, offset=3, limit=2))
+        assert len(results) == 2
+        assert results[0]["name"] == "M3"
+
 
 class TestIterTasks:
     def test_basic(self):
@@ -90,6 +126,12 @@ class TestIterTasks:
         results = list(iter_tasks(data))
         assert len(results[0]["description"]) == 1000
 
+    def test_offset_and_limit(self):
+        data = [{"name": f"T{i}"} for i in range(10)]
+        results = list(iter_tasks(data, offset=2, limit=3))
+        assert len(results) == 3
+        assert results[0]["name"] == "T2"
+
 
 class TestIterDatasets:
     def test_basic(self):
@@ -104,6 +146,12 @@ class TestIterDatasets:
         data = [{"name": "D1"}]
         results = list(iter_datasets(data))
         assert results[0]["modalities"] == ""
+
+    def test_offset_and_limit(self):
+        data = [{"name": f"D{i}"} for i in range(10)]
+        results = list(iter_datasets(data, offset=5, limit=2))
+        assert len(results) == 2
+        assert results[0]["name"] == "D5"
 
 
 class TestIterAuthors:
