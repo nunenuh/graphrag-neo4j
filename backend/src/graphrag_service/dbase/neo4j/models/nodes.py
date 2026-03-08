@@ -7,7 +7,7 @@ Each model inherits from BaseNode (uid + created_at) and declares:
 - Relationships via RelationshipTo / RelationshipFrom
 """
 
-from neomodel import ArrayProperty, FloatProperty, RelationshipFrom, RelationshipTo, StringProperty
+from neomodel import ArrayProperty, FloatProperty, IntegerProperty, RelationshipFrom, RelationshipTo, StringProperty
 
 from .base import BaseNode
 from .relationships import AuthoredRel, EvaluatedOnRel, UsedForRel
@@ -30,6 +30,12 @@ class Author(BaseNode):
     aliases = StringProperty(default="[]")
     merged_into = StringProperty()
 
+    # Analytics (computed by graph analytics pipeline)
+    community_id = IntegerProperty()
+    pagerank = FloatProperty()
+    betweenness = FloatProperty()
+    h_index = IntegerProperty()
+
     # Author -[:AUTHORED]-> Paper
     papers = RelationshipTo("Paper", "AUTHORED", model=AuthoredRel)
 
@@ -43,6 +49,9 @@ class Paper(BaseNode):
     url = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
 
+    # Analytics
+    community_id = IntegerProperty()
+
     # Paper <-[:AUTHORED]- Author
     authors = RelationshipFrom("Author", "AUTHORED", model=AuthoredRel)
 
@@ -55,6 +64,10 @@ class Method(BaseNode):
     description = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
 
+    # Analytics
+    trend_score = FloatProperty()
+    diffusion_path = StringProperty()  # JSON: [{task, year, paper_count}, ...]
+
     # Method -[:EVALUATED_ON]-> Dataset
     evaluated_on = RelationshipTo("Dataset", "EVALUATED_ON", model=EvaluatedOnRel)
 
@@ -66,6 +79,9 @@ class Task(BaseNode):
     area = StringProperty()
     description = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
+
+    # Analytics
+    trend_score = FloatProperty()
 
     # Task <-[:USED_FOR]- Dataset
     datasets = RelationshipFrom("Dataset", "USED_FOR", model=UsedForRel)
