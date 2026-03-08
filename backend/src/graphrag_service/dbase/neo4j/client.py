@@ -5,9 +5,8 @@ Neo4j database client — wraps neomodel connection management.
 from neomodel import db, get_config
 
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
 
 
 class Neo4jClient:
@@ -24,7 +23,7 @@ class Neo4jClient:
         config = get_config()
         config.database_url = f"bolt://{settings.NEO4J_USER}:{settings.NEO4J_PASSWORD}@{host}"
         self._connected = True
-        logger.info("Neomodel connection configured", uri=settings.NEO4J_URI)
+        logger.bind(uri=settings.NEO4J_URI).info("Neomodel connection configured")
 
     def close(self) -> None:
         """Close the neomodel connection."""
@@ -39,7 +38,7 @@ class Neo4jClient:
             db.cypher_query("RETURN 1")
             return True
         except Exception as e:
-            logger.error("Neo4j connectivity check failed", error=str(e))
+            logger.bind(error=str(e)).error("Neo4j connectivity check failed")
             return False
 
     def install_labels(self) -> None:
@@ -53,7 +52,12 @@ class Neo4jClient:
         Uses neomodel's db.cypher_query under the hood.
         Returns list of dicts for compatibility with existing repositories.
         """
+        import time
+
+        t0 = time.perf_counter()
         results, meta = db.cypher_query(cypher, params or {})
+        duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.bind(duration_ms=duration_ms, rows=len(results)).debug("neo4j.query")
         if not meta:
             return results
         return [dict(zip(meta, row)) for row in results]

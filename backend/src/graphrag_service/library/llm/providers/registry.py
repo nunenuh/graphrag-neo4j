@@ -11,8 +11,10 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from graphrag_service.core.config import Settings, get_settings
+from loguru import logger
 
 from . import google, ollama, openai, qwen
+
 
 # Provider name -> module with get_chat_model / get_embeddings
 _PROVIDERS: dict[str, object] = {
@@ -35,6 +37,7 @@ def get_chat_model() -> BaseChatModel:
             f"Available: {', '.join(_PROVIDERS)}"
         )
 
+    logger.bind(provider=provider, model=settings.LLM_MODEL).info("llm.provider.resolved")
     return module.get_chat_model(settings)
 
 
@@ -50,4 +53,5 @@ def get_embeddings() -> Embeddings:
             f"Available: {', '.join(_PROVIDERS)}"
         )
 
+    logger.bind(provider=provider, model=settings.EMBEDDING_MODEL).info("embedding.provider.resolved")
     return module.get_embeddings(settings)

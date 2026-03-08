@@ -10,12 +10,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from loguru import logger
+
 from .core.config import get_settings
 from .core.dependencies import close_neo4j_client
-from .core.logging import get_logger, setup_logging
+from .core.logging import setup_logging
 from .router import api_router
-
-logger = get_logger(__name__)
 
 _DOCS_ENVS = {"development", "local", "staging"}
 
@@ -23,9 +23,21 @@ _DOCS_ENVS = {"development", "local", "staging"}
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Application lifespan — startup and shutdown."""
-    logger.info("Application starting up...")
+    settings = get_settings()
+    logger.bind(
+        environment=settings.APP_ENVIRONMENT,
+        debug=settings.APP_DEBUG,
+        llm_provider=settings.LLM_PROVIDER,
+        llm_model=settings.LLM_MODEL,
+        embedding_provider=settings.EMBEDDING_PROVIDER,
+        embedding_model=settings.EMBEDDING_MODEL,
+        embedding_dim=settings.EMBEDDING_DIM,
+        neo4j_uri=settings.NEO4J_URI,
+        top_k=settings.TOP_K_SEED_NODES,
+        traversal_depth=settings.TRAVERSAL_DEPTH,
+    ).info("app.startup")
     yield
-    logger.info("Application shutting down...")
+    logger.info("app.shutdown")
     close_neo4j_client()
 
 

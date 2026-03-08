@@ -4,15 +4,14 @@ RAG use case orchestration layer.
 Coordinates service (library calls) + repository (DB) via LangGraph pipeline.
 """
 
+from loguru import logger
+
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.library.graph import run_rag_pipeline
 
 from .repositories import TraversalRepository, VectorSearchRepository
 from .services import RAGService
-
-logger = get_logger(__name__)
 
 
 class RAGUseCase:

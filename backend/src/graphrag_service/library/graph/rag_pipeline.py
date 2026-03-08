@@ -5,13 +5,22 @@ Functions are injected by the caller (usecase layer), keeping this graph
 definition free of DB or provider dependencies.
 """
 
+import time
 from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+
+def _timed(step_name: str, fn: Callable, *args: Any, **kwargs: Any) -> Any:
+    """Execute fn with timing and structured logging."""
+    logger.bind(step=step_name).info("rag_step.start")
+    t0 = time.perf_counter()
+    result = fn(*args, **kwargs)
+    duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+    logger.bind(step=step_name, duration_ms=duration_ms).info("rag_step.done")
+    return result
 
 
 class RAGState(TypedDict):
@@ -36,11 +45,11 @@ def build_rag_graph(
     """Build the RAG pipeline graph with injected functions."""
 
     def embed_step(state: RAGState) -> dict:
-        vector = embed_fn(state["question"])
+        vector = _timed("embed", embed_fn, state["question"])
         return {"query_vector": vector}
 
     def search_step(state: RAGState) -> dict:
-        results = search_fn(state["query_vector"], top_k)
+        results = _timed("vector_search", search_fn, state["query_vector"], top_k)
         seeds = [
             {
                 "id": r.id,
@@ -51,11 +60,14 @@ def build_rag_graph(
             }
             for r in results
         ]
+        logger.bind(count=len(seeds), top_scores=[s["score"] for s in seeds[:3]]).info("vector_search.results")
         return {"seed_nodes": seeds}
 
     def traverse_step(state: RAGState) -> dict:
         ids = [s["id"] for s in state["seed_nodes"]]
-        nodes_dict, edges_list = traverse_fn(ids)
+        logger.bind(seed_count=len(ids)).info("traverse.input")
+        nodes_dict, edges_list = _timed("traverse", traverse_fn, ids)
+        logger.bind(nodes=len(nodes_dict), edges=len(edges_list)).info("traverse.results")
         return {
             "subgraph": {
                 "seed_nodes": state["seed_nodes"],
@@ -66,14 +78,18 @@ def build_rag_graph(
         }
 
     def context_step(state: RAGState) -> dict:
-        context = build_context_fn(
+        context = _timed(
+            "build_context",
+            build_context_fn,
             state["seed_nodes"],
             state["subgraph"].get("edges", []),
         )
+        logger.bind(context_len=len(context)).info("build_context.results")
         return {"context": context}
 
     def generate_step(state: RAGState) -> dict:
-        answer = generate_fn(state["question"], state["context"])
+        answer = _timed("generate", generate_fn, state["question"], state["context"])
+        logger.bind(answer_len=len(answer)).info("generate.results")
         return {"answer": answer}
 
     graph = StateGraph(RAGState)
@@ -103,9 +119,13 @@ def run_rag_pipeline(
     top_k: int = 5,
 ) -> RAGState:
     """Build and run the RAG pipeline, returning the final state."""
+    logger.bind(question=question[:100], top_k=top_k).info("rag_pipeline.start")
+    t0 = time.perf_counter()
     graph = build_rag_graph(
         embed_fn, search_fn, traverse_fn, build_context_fn, generate_fn, top_k
     )
     app = graph.compile()
     result = app.invoke({"question": question})
+    total_ms = round((time.perf_counter() - t0) * 1000, 1)
+    logger.bind(total_ms=total_ms).info("rag_pipeline.done")
     return result

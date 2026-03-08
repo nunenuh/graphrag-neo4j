@@ -2,13 +2,14 @@
 Graph API endpoints for schema and exploration.
 """
 
+import time
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from graphrag_service.core.config import get_settings
 from graphrag_service.core.dependencies import get_neo4j_client
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import RepositoryException
 
@@ -22,7 +23,6 @@ from ..schemas import (
 )
 from ..usecase import GraphUseCase
 
-logger = get_logger(__name__)
 router = APIRouter()
 
 
@@ -38,14 +38,17 @@ def _error_detail(error_code: str, exc: Exception) -> dict:
 @router.get("/schema", response_model=GraphSchemaResponse)
 async def get_schema(client: Neo4jClient = Depends(get_neo4j_client)):
     """Get Neo4j graph schema (node labels and relationship types)."""
+    logger.info("graph.schema.request")
     usecase = GraphUseCase(client)
+    t0 = time.perf_counter()
 
     try:
         labels, rels = usecase.get_schema()
+        logger.bind(labels=len(labels), rels=len(rels), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).info("graph.schema.response")
         return GraphSchemaResponse(node_labels=labels, relationship_types=rels)
 
     except RepositoryException as e:
-        logger.error("Graph schema error", error=str(e))
+        logger.bind(error=str(e), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).error("graph.schema.error")
         raise HTTPException(status_code=503, detail=_error_detail("graph_schema_error", e))
 
 
@@ -55,39 +58,50 @@ async def explore(
     client: Neo4jClient = Depends(get_neo4j_client),
 ):
     """Explore a sample of the knowledge graph."""
+    logger.bind(limit=limit).info("graph.explore.request")
     usecase = GraphUseCase(client)
+    t0 = time.perf_counter()
 
     try:
         nodes, edges = usecase.explore(limit=limit)
+        logger.bind(nodes=len(nodes), edges=len(edges), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).info("graph.explore.response")
         return GraphExploreResponse(nodes=nodes, edges=edges)
 
     except RepositoryException as e:
-        logger.error("Graph explore error", error=str(e))
+        logger.bind(error=str(e), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).error("graph.explore.error")
         raise HTTPException(status_code=503, detail=_error_detail("graph_explore_error", e))
 
 
 @router.get("/stats", response_model=GraphStatsResponse)
 async def get_stats(client: Neo4jClient = Depends(get_neo4j_client)):
     """Get graph statistics (node/edge counts per type)."""
+    logger.info("graph.stats.request")
     usecase = GraphUseCase(client)
+    t0 = time.perf_counter()
     try:
-        return GraphStatsResponse(**usecase.get_stats())
+        stats = usecase.get_stats()
+        logger.bind(duration_ms=round((time.perf_counter() - t0) * 1000, 1)).info("graph.stats.response")
+        return GraphStatsResponse(**stats)
     except RepositoryException as e:
-        logger.error("Graph stats error", error=str(e))
+        logger.bind(error=str(e), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).error("graph.stats.error")
         raise HTTPException(status_code=503, detail=_error_detail("graph_stats_error", e))
 
 
 @router.get("/nodes/{uid}", response_model=NodeDetailResponse)
 async def get_node(uid: str, client: Neo4jClient = Depends(get_neo4j_client)):
     """Get a single node by UID with its relationships."""
+    logger.bind(uid=uid).info("graph.node.request")
     usecase = GraphUseCase(client)
+    t0 = time.perf_counter()
     try:
         result = usecase.get_node(uid)
         if result is None:
+            logger.bind(uid=uid).info("graph.node.not_found")
             raise HTTPException(status_code=404, detail=f"Node '{uid}' not found")
+        logger.bind(uid=uid, duration_ms=round((time.perf_counter() - t0) * 1000, 1)).info("graph.node.response")
         return NodeDetailResponse(**result)
     except RepositoryException as e:
-        logger.error("Node detail error", error=str(e))
+        logger.bind(uid=uid, error=str(e), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).error("graph.node.error")
         raise HTTPException(status_code=503, detail=_error_detail("node_detail_error", e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -101,9 +115,12 @@ async def search_nodes(
     client: Neo4jClient = Depends(get_neo4j_client),
 ):
     """Search nodes by name (case-insensitive)."""
+    logger.bind(query=q, label=label, limit=limit).info("graph.search.request")
     usecase = GraphUseCase(client)
+    t0 = time.perf_counter()
     try:
         results = usecase.search_nodes(q, label=label, limit=limit)
+        logger.bind(count=len(results), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).info("graph.search.response")
         return NodeSearchResponse(
             results=[NodeSearchResultOut(**r) for r in results],
             count=len(results),
@@ -111,5 +128,5 @@ async def search_nodes(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RepositoryException as e:
-        logger.error("Node search error", error=str(e))
+        logger.bind(error=str(e), duration_ms=round((time.perf_counter() - t0) * 1000, 1)).error("graph.search.error")
         raise HTTPException(status_code=503, detail=_error_detail("node_search_error", e))
