@@ -35,19 +35,11 @@ interface QueryState {
   edges: GraphEdge[];
   cypher: string;
   latencyMs: number | null;
-}
+  metadata: PipelineMetadata | null;
 
-const INITIAL_STATE: QueryState = {
-  question: "",
-  isLoading: false,
-  error: null,
-  answer: "",
-  seedNodes: [],
-  nodes: [],
-  edges: [],
-  cypher: "",
-  latencyMs: null,
-};
+  // UI
+  selectedNodeId: string | null;
+}
 ```
 
 ---
@@ -62,13 +54,17 @@ const INITIAL_STATE: QueryState = {
  * Renders three-panel layout: ChatPanel | GraphViewer | CypherPanel
  */
 
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
+import { useState, useCallback } from "react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { GraphViewer } from "@/components/GraphViewer";
 import { CypherPanel } from "@/components/CypherPanel";
+import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { queryGraph } from "@/lib/api";
-import type { SeedNode, GraphNode, GraphEdge } from "@/types/api";
+import { ApiError } from "@/types/api";
+import type { SeedNode, GraphNode, GraphEdge, PipelineMetadata } from "@/types/api";
+import { AlertCircle, Network } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { StatusBadges } from "@/components/StatusBadges";
 
 const EXAMPLE_QUESTIONS = [
   "What methods are used for object detection?",
@@ -77,7 +73,7 @@ const EXAMPLE_QUESTIONS = [
   "How does BERT relate to other NLP methods?",
 ];
 
-export function App() {
+export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
@@ -86,17 +82,20 @@ export function App() {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [cypher, setCypher] = useState("");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [metadata, setMetadata] = useState<PipelineMetadata | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const handleSubmit = async (question: string) => {
     setIsLoading(true);
     setError(null);
-    // Clear previous results
     setAnswer("");
     setSeedNodes([]);
     setNodes([]);
     setEdges([]);
     setCypher("");
     setLatencyMs(null);
+    setMetadata(null);
+    setSelectedNodeId(null);
 
     try {
       const response = await queryGraph(question);
@@ -106,55 +105,27 @@ export function App() {
       setEdges(response.edges);
       setCypher(response.cypher_used);
       setLatencyMs(response.latency_ms);
+      setMetadata(response.metadata);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      if (err instanceof ApiError) {
+        setError(`API error (${err.statusCode}): ${err.detail}`);
+      } else {
+        setError("Network error. Is the backend running?");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const seedNodeIds = new Set(seedNodes.map((sn) => sn.id));
+  const handleNodeSelect = useCallback((nodeId: string | null) => {
+    setSelectedNodeId(nodeId);
+  }, []);
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4">
-      <header className="mb-4">
-        <h1 className="text-2xl font-bold">graphrag-neo4j</h1>
-        <p className="text-sm text-slate-400">Graph RAG over ML Research Papers</p>
-      </header>
-
-      {error && (
-        <div className="mb-4 p-3 rounded bg-red-900/50 border border-red-700 text-sm text-red-200">
-          {error}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-4 h-[calc(100vh-120px)]">
-        {/* Left: Chat */}
-        <Card className="p-4 flex flex-col bg-slate-900 border-slate-800">
-          <ChatPanel
-            onSubmit={handleSubmit}
-            answer={answer}
-            seedNodes={seedNodes}
-            isLoading={isLoading}
-            latencyMs={latencyMs ?? undefined}
-            exampleQuestions={EXAMPLE_QUESTIONS}
-          />
-        </Card>
-
-        {/* Right: Graph + Cypher */}
-        <div className="flex flex-col gap-3">
-          <Card className="flex-1 bg-slate-900 border-slate-800 overflow-hidden">
-            <GraphViewer nodes={nodes} edges={edges} seedNodeIds={seedNodeIds} />
-          </Card>
-          {cypher && (
-            <Card className="p-3 bg-slate-900 border-slate-800">
-              <CypherPanel cypher={cypher} />
-            </Card>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  // Layout: header + two-column grid (chat | graph+cypher)
+  // Header includes StatusBadges + ThemeToggle
+  // Graph area has NodeDetailPanel overlay when a node is selected
+  // ...
 }
 ```
 
@@ -244,13 +215,13 @@ const [seedNodeIds, setSeedNodeIds] = useState(new Set<string>());
 ```
 User types question
     ↓
-<Input> onChange → setQuestion (local to ChatPanel)
+<input> onChange → setQuestion (local to ChatPanel)
     ↓
-User presses Enter or clicks Ask
+User presses Enter or clicks Send
     ↓
 ChatPanel.onSubmit(question) → App.handleSubmit(question)
     ↓
-setIsLoading(true) + clear stale state
+setIsLoading(true) + clear stale state (including metadata, selectedNodeId)
     ↓
 await queryGraph(question)    ← lib/api.ts
     ↓
@@ -261,13 +232,18 @@ Success:
   setEdges(response.edges)
   setCypher(response.cypher_used)
   setLatencyMs(response.latency_ms)
+  setMetadata(response.metadata)
     ↓
 Error:
-  setError("Something went wrong...")
+  ApiError → "API error (status): detail"
+  Other   → "Network error. Is the backend running?"
     ↓
 finally: setIsLoading(false)
     ↓
-Re-render → props flow down to ChatPanel, GraphViewer, CypherPanel
+Re-render → props flow down to ChatPanel, GraphViewer, NodeDetailPanel, CypherPanel
+
+User clicks graph node → GraphViewer.onNodeSelect(id) → setSelectedNodeId(id)
+User clicks canvas     → GraphViewer.onNodeSelect(null) → setSelectedNodeId(null)
 ```
 
 ---

@@ -20,10 +20,10 @@ question: str
     v  [embed]     library.llm.embed_text (LangChain embeddings)
 query_vector: list[float]
     |
-    v  [search]    VectorSearchRepository.search_all (neomodel VectorFilter)
+    v  [search]    VectorSearchRepository.search_all (raw Cypher db.index.vector.queryNodes)
 seed_nodes: list[dict]
     |
-    v  [traverse]  TraversalRepository.traverse (raw Cypher 2-hop)
+    v  [traverse]  TraversalRepository.traverse (raw Cypher 2-hop with labels)
 subgraph: dict  {nodes, edges, cypher_used}
     |
     v  [context]   library.generator.build_context (text serialization)
@@ -33,8 +33,11 @@ context: str
 answer: str
     |
     v  RAGUseCase.query (orchestration via LangGraph)
-tuple[str, dict]
+RAGState dict  {question, query_vector, seed_nodes, subgraph, context, answer, step_timings}
 ```
+
+**Step timings**: Each pipeline step records its duration in `step_timings: dict[str, float]` (ms).
+This is returned in the API response as `metadata.step_timings` for frontend evaluation display.
 
 The pipeline graph is defined in `library/graph/rag_pipeline.py` and wired by `modules/rag/usecase.py`. See [llm.md](llm.md) for details.
 
@@ -140,36 +143,36 @@ from graphrag_service.library.llm import embed_text, embed_batch
 
 ## `VectorSearchRepository`
 
-Uses neomodel `VectorFilter` for similarity search. Lives in `repositories.py`.
+Uses raw Cypher `db.index.vector.queryNodes` for similarity search. Lives in `repositories.py`.
 
 ```python
-SEARCH_MODELS: list[type[StructuredNode]] = [Paper, Method, Task, Dataset]
+SEARCH_LABELS: list[str] = ["Paper", "Method", "Task", "Dataset"]
 
 class VectorSearchRepository:
 
     def __init__(self, client: Neo4jClient):
         self._client = client
 
-    def search(self, vec: list[float], model: type[StructuredNode], k: int) -> list[VectorSearchResult]:
-        """Search a single neomodel node class by vector similarity."""
-        hits = model.nodes.filter(
-            vector_filter=VectorFilter(
-                topk=k,
-                vector_attribute_name="embedding",
-                candidate_vector=vec,
-            )
-        ).all()
+    def search(self, vec: list[float], label: str, k: int) -> list[VectorSearchResult]:
+        """Search a single label by vector similarity via Cypher."""
+        index_name = f"vector_index_{label}_embedding"
+        cypher = (
+            "CALL db.index.vector.queryNodes($index, $k, $vec) "
+            "YIELD node, score "
+            "RETURN node, score, labels(node)[0] AS label"
+        )
         ...
 
     def search_all(self, vec: list[float], k: int) -> list[VectorSearchResult]:
-        """Search across all 4 node models and return top-k overall."""
+        """Search across all 4 label types and return top-k overall."""
         ...
 ```
 
 **Key details:**
-- Vector search uses `neomodel.semantic_filters.VectorFilter` -- not raw `CALL db.index.vector.queryNodes` Cypher
-- Searches all 4 model types: `Paper`, `Method`, `Task`, `Dataset`
-- Results from all models are merged, sorted by score descending, and truncated to top-k
+- Vector search uses raw Cypher `CALL db.index.vector.queryNodes` (not neomodel VectorFilter)
+- Index naming convention: `vector_index_{Label}_embedding`
+- Searches all 4 labels: `Paper`, `Method`, `Task`, `Dataset`
+- Results from all labels are merged, sorted by score descending, and truncated to top-k
 - Node ID is `node.uid` (not `node.id`)
 - Embedding property is excluded from the returned `properties` dict
 - Raises `RepositoryException` on failure
@@ -185,11 +188,11 @@ TRAVERSE_QUERY = """
     MATCH (seed) WHERE seed.uid IN $ids
     OPTIONAL MATCH (seed)-[r1]->(n1)
     OPTIONAL MATCH (n1)-[r2]->(n2)
-    RETURN seed,
+    RETURN seed, labels(seed)[0] AS seed_label,
            collect(DISTINCT {from: seed.uid, to: n1.uid, type: type(r1), props: properties(r1)}) AS e1,
-           collect(DISTINCT n1) AS nodes1,
+           collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
            collect(DISTINCT {from: n1.uid,  to: n2.uid, type: type(r2), props: properties(r2)}) AS e2,
-           collect(DISTINCT n2) AS nodes2
+           collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2
 """
 
 class TraversalRepository:
@@ -205,6 +208,8 @@ class TraversalRepository:
 
 **Key details:**
 - Uses `seed.uid` (not `seed.id`) in all Cypher
+- Returns `labels(seed)[0] AS seed_label` and wraps hop nodes as `{node: n1, label: labels(n1)[0]}`
+- Processing extracts label from wrapped objects and adds `name` fallback (name → title → uid)
 - Embedding properties are stripped from returned node dicts
 - Null nodes from `OPTIONAL MATCH` are filtered out
 - Edges require non-null `from`, `to`, and `type` to be included
@@ -297,8 +302,13 @@ class RAGUseCase:
         self.vector_repo = VectorSearchRepository(client)
         self.traversal_repo = TraversalRepository(client)
 
-    def query(self, question: str) -> tuple[str, dict]:
-        """Run the RAG pipeline using LangGraph."""
+    def query(self, question: str) -> dict:
+        """Run the RAG pipeline using LangGraph.
+
+        Returns the full pipeline state dict with keys:
+            question, query_vector, seed_nodes, subgraph, context, answer, step_timings
+        """
+        settings = get_settings()
         result = run_rag_pipeline(
             question=question,
             embed_fn=self.service.embed_question,
@@ -306,8 +316,9 @@ class RAGUseCase:
             traverse_fn=self.traversal_repo.traverse,
             build_context_fn=self.service.build_context,
             generate_fn=self.service.generate_answer,
+            top_k=settings.TOP_K_SEED_NODES,
         )
-        return result["answer"], result["subgraph"]
+        return result
 ```
 
 **Key points:**
