@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     )
     TRAVERSAL_DEPTH: int = Field(default=2, description="Graph traversal depth")
 
+    # Entity Resolution Settings
+    ER_SIMILARITY_THRESHOLD: float = Field(
+        default=0.85, description="Minimum similarity score to auto-merge authors"
+    )
+    ER_BATCH_SIZE: int = Field(
+        default=1000, description="Batch size for ER processing"
+    )
+    ER_MAX_BLOCK_SIZE: int = Field(
+        default=500, description="Max authors per blocking group (skip huge blocks)"
+    )
+
     # Data Settings
     DATA_DIR: str = Field(default="data", description="Data directory path")
     MAX_PAPERS: int = Field(default=5000, description="Max papers to ingest (0 = all)")

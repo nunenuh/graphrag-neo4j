@@ -10,7 +10,28 @@ Each model inherits from BaseNode (uid + created_at) and declares:
 from neomodel import ArrayProperty, FloatProperty, RelationshipFrom, RelationshipTo, StringProperty
 
 from .base import BaseNode
-from .relationships import EvaluatedOnRel, UsedForRel
+from .relationships import AuthoredRel, EvaluatedOnRel, UsedForRel
+
+
+class Author(BaseNode):
+    """Author node for entity resolution.
+
+    Properties:
+        name: Original raw name from PwC data.
+        name_normalized: Lowercased, diacritics-stripped, suffix-removed name.
+        blocking_key: last_name + first_initial for candidate grouping.
+        aliases: JSON-encoded list of alternative name strings.
+        merged_into: uid of the canonical author (set after ER merge).
+    """
+
+    name = StringProperty(required=True, index=True)
+    name_normalized = StringProperty(index=True)
+    blocking_key = StringProperty(index=True)
+    aliases = StringProperty(default="[]")
+    merged_into = StringProperty()
+
+    # Author -[:AUTHORED]-> Paper
+    papers = RelationshipTo("Paper", "AUTHORED", model=AuthoredRel)
 
 
 class Paper(BaseNode):
@@ -21,6 +42,9 @@ class Paper(BaseNode):
     year = StringProperty()
     url = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
+
+    # Paper <-[:AUTHORED]- Author
+    authors = RelationshipFrom("Author", "AUTHORED", model=AuthoredRel)
 
 
 class Method(BaseNode):
@@ -61,5 +85,8 @@ class Dataset(BaseNode):
     evaluated_by = RelationshipFrom("Method", "EVALUATED_ON", model=EvaluatedOnRel)
 
 
-# Registry of all node models
+# Registry of all node models (Author excluded — has no embedding/vector index)
 ALL_NODE_MODELS: list[type[BaseNode]] = [Paper, Method, Task, Dataset]
+
+# All models including Author (for schema installation)
+ALL_MODELS: list[type[BaseNode]] = [Author, Paper, Method, Task, Dataset]

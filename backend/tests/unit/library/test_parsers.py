@@ -3,6 +3,8 @@
 import pytest
 
 from graphrag_service.library.parsers import (
+    iter_author_paper_edges,
+    iter_authors,
     iter_datasets,
     iter_methods,
     iter_papers,
@@ -102,3 +104,76 @@ class TestIterDatasets:
         data = [{"name": "D1"}]
         results = list(iter_datasets(data))
         assert results[0]["modalities"] == ""
+
+
+class TestIterAuthors:
+    def test_extracts_unique_authors(self):
+        data = [
+            {"title": "P1", "abstract": "A1", "authors": ["Alice", "Bob"]},
+            {"title": "P2", "abstract": "A2", "authors": ["Bob", "Carol"]},
+        ]
+        results = list(iter_authors(data))
+        names = [r["name"] for r in results]
+        assert names == ["Alice", "Bob", "Carol"]
+
+    def test_uid_format(self):
+        data = [{"authors": ["Geoffrey Hinton"]}]
+        results = list(iter_authors(data))
+        assert results[0]["uid"] == "author:geoffrey_hinton"
+
+    def test_skips_empty_names(self):
+        data = [{"authors": ["", "  ", "Alice"]}]
+        results = list(iter_authors(data))
+        assert len(results) == 1
+        assert results[0]["name"] == "Alice"
+
+    def test_no_authors_key(self):
+        data = [{"title": "P1"}]
+        assert list(iter_authors(data)) == []
+
+    def test_max_papers(self):
+        data = [
+            {"authors": ["Alice"]},
+            {"authors": ["Bob"]},
+            {"authors": ["Carol"]},
+        ]
+        results = list(iter_authors(data, max_papers=2))
+        names = [r["name"] for r in results]
+        assert "Carol" not in names
+
+    def test_strips_whitespace(self):
+        data = [{"authors": ["  Alice  "]}]
+        results = list(iter_authors(data))
+        assert results[0]["name"] == "Alice"
+
+
+class TestIterAuthorPaperEdges:
+    def test_basic(self):
+        data = [
+            {"title": "P1", "abstract": "A1", "paper_url": "http://p1", "authors": ["Alice", "Bob"]},
+        ]
+        edges = list(iter_author_paper_edges(data))
+        assert len(edges) == 2
+        assert edges[0]["author_name"] == "Alice"
+        assert edges[0]["paper_uid"] == "http://p1"
+        assert edges[0]["order"] == 0
+        assert edges[1]["order"] == 1
+
+    def test_skips_papers_without_title(self):
+        data = [{"abstract": "A1", "authors": ["Alice"]}]
+        assert list(iter_author_paper_edges(data)) == []
+
+    def test_skips_empty_author_names(self):
+        data = [{"title": "P1", "abstract": "A1", "paper_url": "u", "authors": ["", "Alice"]}]
+        edges = list(iter_author_paper_edges(data))
+        assert len(edges) == 1
+        assert edges[0]["author_name"] == "Alice"
+
+    def test_max_papers(self):
+        data = [
+            {"title": "P1", "abstract": "A1", "paper_url": "u1", "authors": ["Alice"]},
+            {"title": "P2", "abstract": "A2", "paper_url": "u2", "authors": ["Bob"]},
+        ]
+        edges = list(iter_author_paper_edges(data, max_papers=1))
+        assert len(edges) == 1
+        assert edges[0]["author_name"] == "Alice"

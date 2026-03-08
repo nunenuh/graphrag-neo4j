@@ -39,6 +39,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from graphrag_service.modules.entity_resolution.cli.commands import get_er_app
+
+    app.add_typer(get_er_app(), name="er")
+except ImportError:
+    pass
+
 
 def main():
     """Main CLI entry point."""
@@ -61,6 +68,10 @@ def main():
                 click.echo("  health               Health check commands")
                 click.echo("    ping               Simple liveness check")
                 click.echo("    check              Check Neo4j connectivity")
+                click.echo("  er                   Entity resolution commands")
+                click.echo("    ingest             Ingest authors from PwC data")
+                click.echo("    resolve            Run entity resolution")
+                click.echo("    stats              Show ER statistics")
                 click.echo("\nUse 'cli <command> --help' for more information")
                 sys.exit(0)
             raise
