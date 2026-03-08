@@ -4,11 +4,10 @@ RAG module repositories — vector search (Cypher) and graph traversal.
 
 from dataclasses import dataclass, field
 
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import RepositoryException
 
-logger = get_logger(__name__)
 
 # Labels to search across
 SEARCH_LABELS: list[str] = ["Paper", "Method", "Task", "Dataset"]
@@ -17,11 +16,11 @@ TRAVERSE_QUERY = """
     MATCH (seed) WHERE seed.uid IN $ids
     OPTIONAL MATCH (seed)-[r1]->(n1)
     OPTIONAL MATCH (n1)-[r2]->(n2)
-    RETURN seed,
+    RETURN seed, labels(seed)[0] AS seed_label,
            collect(DISTINCT {from: seed.uid, to: n1.uid, type: type(r1), props: properties(r1)}) AS e1,
-           collect(DISTINCT n1) AS nodes1,
+           collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
            collect(DISTINCT {from: n1.uid,  to: n2.uid, type: type(r2), props: properties(r2)}) AS e2,
-           collect(DISTINCT n2) AS nodes2
+           collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2
 """
 
 
@@ -50,7 +49,9 @@ class VectorSearchRepository:
         )
         try:
             rows = self._client.run_query(cypher, {"index": index_name, "k": k, "vec": vec})
+            logger.bind(label=label, index=index_name, results=len(rows)).debug("vector_search.label")
         except Exception as e:
+            logger.bind(label=label, error=str(e)).error("vector_search.failed")
             raise RepositoryException(f"Vector search failed on {label}: {e}") from e
 
         results = []
@@ -90,18 +91,36 @@ class TraversalRepository:
         """
         try:
             rows = self._client.run_query(TRAVERSE_QUERY, {"ids": node_ids})
+            logger.bind(seed_count=len(node_ids), rows=len(rows)).debug("traversal.query_done")
         except Exception as e:
+            logger.bind(seed_count=len(node_ids), error=str(e)).error("traversal.failed")
             raise RepositoryException(f"Graph traversal failed: {e}") from e
 
         all_nodes: dict[str, dict] = {}
         all_edges: list[dict] = []
 
         for r in rows:
-            for n in [r["seed"]] + (r["nodes1"] or []) + (r["nodes2"] or []):
-                if n is None:
-                    continue
-                d = {key: val for key, val in dict(n).items() if key != "embedding"}
+            # Seed node (returned directly with its label)
+            seed = r["seed"]
+            if seed is not None:
+                d = {k: v for k, v in dict(seed).items() if k != "embedding"}
+                d["label"] = r.get("seed_label", "")
+                d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
                 all_nodes[d.get("uid", "")] = d
+
+            # Hop-1 and hop-2 nodes (wrapped as {node, label})
+            for wrapped in (r["nodes1"] or []) + (r["nodes2"] or []):
+                if wrapped is None:
+                    continue
+                node = wrapped.get("node") if isinstance(wrapped, dict) else wrapped
+                if node is None:
+                    continue
+                d = {k: v for k, v in dict(node).items() if k != "embedding"}
+                if isinstance(wrapped, dict) and wrapped.get("label"):
+                    d["label"] = wrapped["label"]
+                d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
+                all_nodes[d.get("uid", "")] = d
+
             for e in (r["e1"] or []) + (r["e2"] or []):
                 if e.get("from") and e.get("to") and e.get("type"):
                     all_edges.append(

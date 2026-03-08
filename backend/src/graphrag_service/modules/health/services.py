@@ -6,11 +6,9 @@ import time
 from typing import List, Tuple
 
 from graphrag_service.core.dependencies import get_neo4j_client
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 
 from .schemas import ComponentHealth
-
-logger = get_logger(__name__)
 
 _start_time = time.time()
 
@@ -33,7 +31,7 @@ class HealthService:
             )
         except Exception as e:
             elapsed = (time.time() - t0) * 1000
-            logger.error("Neo4j health check failed", error=str(e))
+            logger.bind(error=str(e)).error("Neo4j health check failed")
             return ComponentHealth(
                 name="neo4j",
                 status="unhealthy",

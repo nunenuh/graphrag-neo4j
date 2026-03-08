@@ -4,11 +4,10 @@ RAG service — orchestrates library calls for embedding, context building, and 
 Does NOT access the database. Uses library/ for reusable logic.
 """
 
-from graphrag_service.core.logging import get_logger
+from loguru import logger
+
 from graphrag_service.library.generator import build_context
 from graphrag_service.library.llm import embed_text, generate
-
-logger = get_logger(__name__)
 
 
 class RAGService:

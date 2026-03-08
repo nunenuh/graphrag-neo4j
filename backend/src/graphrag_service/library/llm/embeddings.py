@@ -3,23 +3,26 @@ Embedding wrapper — provides embed_text and embed_batch using LangChain embedd
 """
 
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
+from loguru import logger
 from graphrag_service.shared.exceptions import ServiceException
 
 from .providers import get_embeddings
 
-logger = get_logger(__name__)
 
 
 def embed_text(text: str) -> list[float]:
     """Embed a single text string. Returns zero vector for empty input."""
     if not text or not text.strip():
+        logger.debug("embed.skip_empty")
         return [0.0] * get_settings().EMBEDDING_DIM
 
     try:
         embeddings = get_embeddings()
-        return embeddings.embed_query(text.replace("\n", " "))
+        result = embeddings.embed_query(text.replace("\n", " "))
+        logger.bind(text_len=len(text), dim=len(result)).debug("embed.done")
+        return result
     except Exception as e:
+        logger.bind(text_len=len(text), error=str(e)).error("embed.failed")
         raise ServiceException(f"Embedding failed: {e}") from e
 
 

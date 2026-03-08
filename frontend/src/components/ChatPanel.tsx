@@ -1,104 +1,135 @@
-import { useState } from 'react'
-import { queryGraph } from '@/lib/api'
-import type { QueryResponse } from '@/lib/types'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Send, Loader2, Sparkles, Clock } from "lucide-react";
+import type { SeedNode } from "@/types/api";
 
-const EXAMPLES = [
-  'What methods are used for object detection?',
-  'Which papers introduced transformer models for NLP?',
-  'What datasets benchmark image segmentation?',
-  'Find variants of BERT and the tasks they solve.',
-]
+const BADGE_COLORS: Record<string, string> = {
+  Paper: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  Method: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  Task: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+  Dataset: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+};
 
-const LABEL_COLORS: Record<string, string> = {
-  Paper: 'bg-blue-100 text-blue-700',
-  Method: 'bg-green-100 text-green-700',
-  Task: 'bg-amber-100 text-amber-700',
-  Dataset: 'bg-purple-100 text-purple-700',
+interface ChatPanelProps {
+  onSubmit: (question: string) => void;
+  answer: string;
+  seedNodes: SeedNode[];
+  isLoading: boolean;
+  latencyMs?: number;
+  exampleQuestions: string[];
 }
 
-interface Props {
-  onResult: (r: QueryResponse) => void
-  isLoading: boolean
-  setIsLoading: (v: boolean) => void
-}
+export function ChatPanel({
+  onSubmit,
+  answer,
+  seedNodes,
+  isLoading,
+  latencyMs,
+  exampleQuestions,
+}: ChatPanelProps) {
+  const [question, setQuestion] = useState("");
 
-export default function ChatPanel({ onResult, isLoading, setIsLoading }: Props) {
-  const [q, setQ]             = useState('')
-  const [answer, setAnswer]   = useState('')
-  const [latency, setLatency] = useState<number | null>(null)
-  const [seeds, setSeeds]     = useState<QueryResponse['seed_nodes']>([])
-  const [error, setError]     = useState('')
-
-  async function submit(question: string) {
-    if (!question.trim() || isLoading) return
-    setIsLoading(true); setError('')
-    try {
-      const res = await queryGraph(question)
-      setAnswer(res.answer)
-      setLatency(res.latency_ms)
-      setSeeds(res.seed_nodes)
-      onResult(res)
-    } catch {
-      setError('Backend unreachable. Is the server running?')
-    } finally { setIsLoading(false) }
-  }
+  const handleSubmit = (q: string) => {
+    if (!q.trim()) return;
+    setQuestion(q);
+    onSubmit(q.trim());
+  };
 
   return (
-    <div className="flex flex-col h-full p-4 gap-4">
-      <h2 className="font-semibold text-gray-800">Ask the Knowledge Graph</h2>
-
+    <div className="flex flex-col gap-3 h-full">
       {/* Example questions */}
-      <div className="flex flex-wrap gap-2">
-        {EXAMPLES.map(e => (
-          <button key={e} onClick={() => { setQ(e); submit(e) }}
-            className="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded-full hover:bg-slate-200 transition-colors">
-            {e}
-          </button>
-        ))}
-      </div>
+      {!answer && !isLoading && (
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+            <Sparkles size={11} />
+            <span>Try an example</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {exampleQuestions.map((eq) => (
+              <button
+                key={eq}
+                onClick={() => handleSubmit(eq)}
+                disabled={isLoading}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border/60 bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground transition-all duration-150 disabled:opacity-40"
+              >
+                {eq}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Input row */}
-      <div className="flex gap-2">
-        <Input
-          value={q}
-          onChange={e => setQ(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && submit(q)}
-          placeholder="Ask about ML papers, methods, datasets..."
-        />
-        <Button onClick={() => submit(q)} disabled={isLoading}>
-          {isLoading ? '...' : 'Ask'}
-        </Button>
-      </div>
+      {/* Loading indicator */}
+      {isLoading && !answer && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 size={16} className="animate-spin text-primary" />
+            <span>Searching knowledge graph...</span>
+          </div>
+        </div>
+      )}
 
       {/* Seed node badges */}
-      {seeds.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-gray-400">Matched:</span>
-          {seeds.map(s => (
-            <Badge key={s.id} className={LABEL_COLORS[s.label] ?? ''} variant="outline">
-              {s.label}: {s.name} ({s.score.toFixed(2)})
-            </Badge>
-          ))}
+      {seedNodes.length > 0 && (
+        <div className="space-y-1.5">
+          <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+            Seed nodes
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {seedNodes.map((sn) => (
+              <Badge
+                key={sn.id}
+                variant="outline"
+                className={`text-[11px] font-normal py-0.5 ${BADGE_COLORS[sn.label] ?? "border-border"}`}
+              >
+                {sn.name}
+                <span className="ml-1.5 opacity-50 tabular-nums">{sn.score.toFixed(2)}</span>
+              </Badge>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Answer */}
       {answer && (
-        <ScrollArea className="flex-1 bg-slate-50 rounded-lg p-4 text-sm">
-          <div className="text-xs text-gray-400 mb-1">
-            Answer {latency != null && `· ${latency}ms`}
+        <ScrollArea className="flex-1 rounded-lg border border-border/40 bg-secondary/30">
+          <div className="p-4 space-y-3">
+            <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/90">
+              {answer}
+            </p>
+            {latencyMs !== undefined && (
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground/70">
+                <Clock size={10} />
+                <span className="tabular-nums">{latencyMs}ms</span>
+              </div>
+            )}
           </div>
-          <p className="whitespace-pre-wrap text-gray-700">{answer}</p>
         </ScrollArea>
       )}
 
-      {error && (
-        <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>
-      )}
+      {/* Input row */}
+      <div className="mt-auto relative">
+        <input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit(question)}
+          placeholder="Ask about ML papers, methods, datasets..."
+          disabled={isLoading}
+          className="w-full h-10 rounded-lg border border-border/60 bg-background pl-3.5 pr-11 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 disabled:opacity-50 transition-all duration-150"
+        />
+        <button
+          onClick={() => handleSubmit(question)}
+          disabled={isLoading || !question.trim()}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 disabled:opacity-30 disabled:pointer-events-none transition-all duration-150"
+        >
+          {isLoading ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Send size={14} />
+          )}
+        </button>
+      </div>
     </div>
-  )
+  );
 }

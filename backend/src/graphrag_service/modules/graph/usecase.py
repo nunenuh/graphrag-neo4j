@@ -8,15 +8,15 @@ from typing import List, Tuple
 
 from tqdm import tqdm
 
+from loguru import logger
+
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.dbase.neo4j.models import Dataset, Method, Paper, Task
 
 from .repositories import GraphExploreRepository, NodeRepository, SchemaRepository
 from .services import GraphService
 
-logger = get_logger(__name__)
 
 # Map model classes to their service loader methods
 NODE_MODEL_LOADERS = [

@@ -174,8 +174,14 @@ dev: ## Start backend + frontend in parallel
 
 dev-stop: ## Kill dev servers
 	@-pkill -9 -f "uvicorn graphrag_service" 2>/dev/null || true
-	@-pkill -f "vite" 2>/dev/null || true
-	@while ss -tlnp 2>/dev/null | grep -q ":$(PORT) "; do sleep 0.5; done
+	@-pkill -9 -f "vite" 2>/dev/null || true
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		ss -tlnp 2>/dev/null | grep -q ":$(PORT) " || break; \
+		sleep 0.5; \
+	done
+	@-fuser -k -9 $(PORT)/tcp 2>/dev/null || true
+	@-fuser -k -9 5173/tcp 2>/dev/null || true
+	@sleep 0.5
 	@echo "$(GREEN)Dev servers stopped$(RESET)"
 
 # ──────────────────────────────────────────────

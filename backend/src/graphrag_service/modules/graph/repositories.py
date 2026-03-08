@@ -6,14 +6,14 @@ from typing import List, Tuple
 
 from neomodel import StructuredNode
 
+from loguru import logger
+
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.dbase.neo4j.models import ALL_NODE_MODELS
 
 from graphrag_service.shared.exceptions import RepositoryException
 
-logger = get_logger(__name__)
 
 EXPLORE_QUERY = "MATCH (a)-[r]->(b) RETURN a, type(r) AS rel, b LIMIT $limit"
 

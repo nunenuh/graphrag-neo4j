@@ -8,8 +8,9 @@ import json
 from pathlib import Path
 from typing import Iterator
 
+from loguru import logger
+
 from graphrag_service.core.config import get_settings
-from graphrag_service.core.logging import get_logger
 from graphrag_service.library.llm import embed_batch
 from graphrag_service.library.parsers import (
     iter_datasets,
@@ -19,7 +20,6 @@ from graphrag_service.library.parsers import (
     load_json,
 )
 
-logger = get_logger(__name__)
 
 
 class GraphService:
