@@ -212,3 +212,4 @@ node_modules/
 *.json.gz
 data/*.json
 data/.ingest_progress.json
+backend/data/.ingest_progress.json
