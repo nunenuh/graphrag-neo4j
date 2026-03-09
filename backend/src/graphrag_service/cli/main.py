@@ -12,7 +12,7 @@ app = typer.Typer(
     help="GraphRAG Service CLI - Command-line interface for GraphRAG Service",
     add_completion=False,
     no_args_is_help=True,
-    rich_markup_mode="none",
+    rich_markup_mode="rich",
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 

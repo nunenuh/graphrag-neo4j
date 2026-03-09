@@ -13,7 +13,7 @@ from loguru import logger
 
 from graphrag_service.core.config import get_settings
 from graphrag_service.dbase.neo4j.client import Neo4jClient
-from graphrag_service.dbase.neo4j.models import Dataset, Method, Paper, Task
+from graphrag_service.dbase.neo4j.models import Author, Dataset, Method, Paper, Task
 
 from .checkpoint import (
     IngestCheckpoint,
@@ -31,6 +31,7 @@ NODE_MODEL_LOADERS = [
     (Method, "load_methods"),
     (Task, "load_tasks"),
     (Dataset, "load_datasets"),
+    (Author, "load_authors"),
 ]
 
 
@@ -120,11 +121,20 @@ class GraphUseCase:
                     f"{label}: {len(embedded_cache[label])} nodes already embedded"
                 )
 
+            # When resuming an incomplete type, continue from where we left off
+            effective_offset = offset
+            if resume and progress.total_parsed > 0 and not progress.completed:
+                effective_offset = offset + progress.total_parsed
+                logger.info(
+                    f"{label}: resuming from item {effective_offset} "
+                    f"({progress.total_parsed} already processed)"
+                )
+
             loader = getattr(self.service, loader_name)
-            logger.info(f"Ingesting {label}s (offset={offset}, limit={limit})...")
+            logger.info(f"Ingesting {label}s (offset={effective_offset}, limit={limit})...")
 
             batch: list[dict] = []
-            for node in tqdm(loader(offset=offset, limit=limit), desc=label):
+            for node in tqdm(loader(offset=effective_offset, limit=limit), desc=label):
                 batch.append(node)
                 if len(batch) == batch_size:
                     self._process_batch(
@@ -156,6 +166,14 @@ class GraphUseCase:
         progress: NodeTypeProgress,
     ) -> None:
         """Embed and upsert a single batch, optionally skipping already-embedded nodes."""
+        has_embedding = "embedding" in model.defined_properties(aliases=False, rels=False)
+
+        # Models without embedding (e.g. Author) — upsert directly, no embedding
+        if not has_embedding:
+            self._upsert_without_embedding(model, batch)
+            progress.mark_batch(len(batch), skipped=0)
+            return
+
         if skip_embedded:
             need_embed = [n for n in batch if n["uid"] not in embedded_uids]
             already = len(batch) - len(need_embed)
@@ -198,10 +216,12 @@ class GraphUseCase:
 
     def ingest_relationships(self) -> None:
         """Ingest relationships: service loads data, repository writes to DB."""
-        logger.info("Ingesting relationships...")
+        from graphrag_service.library.parsers import iter_author_paper_edges, load_json
+
+        logger.info("Ingesting USED_FOR + EVALUATED_ON relationships...")
         evals = self.service.load_evaluations()
 
-        for ev in tqdm(evals, desc="Relationships"):
+        for ev in tqdm(evals, desc="USED_FOR + EVALUATED_ON"):
             task_name = ev.get("task", "")
             if not task_name:
                 continue
@@ -225,4 +245,17 @@ class GraphUseCase:
                             metric=metric_name,
                             score=str(metric_value),
                         )
+
+        logger.info("Ingesting AUTHORED relationships...")
+        settings = get_settings()
+        papers_data = load_json(self.service.data_dir() / "papers.json")
+        edges = list(iter_author_paper_edges(papers_data, max_papers=settings.MAX_PAPERS))
+        for edge in tqdm(edges, desc="AUTHORED"):
+            author_uid = f"author:{edge['author_name'].lower().replace(' ', '_')}"
+            self.node_repo.merge_authored(
+                author_uid=author_uid,
+                paper_uid=edge["paper_uid"],
+                order=edge["order"],
+            )
+
         logger.info("Relationships ingestion done")

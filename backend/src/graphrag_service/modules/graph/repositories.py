@@ -10,7 +10,7 @@ from loguru import logger
 
 from graphrag_service.core.config import get_settings
 from graphrag_service.dbase.neo4j.client import Neo4jClient
-from graphrag_service.dbase.neo4j.models import ALL_NODE_MODELS
+from graphrag_service.dbase.neo4j.models import ALL_MODELS, ALL_NODE_MODELS
 
 from graphrag_service.shared.exceptions import RepositoryException
 
@@ -18,7 +18,7 @@ from graphrag_service.shared.exceptions import RepositoryException
 EXPLORE_QUERY = "MATCH (a)-[r]->(b) RETURN a, type(r) AS rel, b LIMIT $limit"
 
 # Allowlist for label names — prevents Cypher injection via f-string interpolation
-VALID_LABELS: frozenset[str] = frozenset(m.__label__ for m in ALL_NODE_MODELS)
+VALID_LABELS: frozenset[str] = frozenset(m.__label__ for m in ALL_MODELS)
 
 
 def _validate_label(label: str) -> str:
@@ -150,6 +150,15 @@ class NodeRepository:
             {"dname": dataset_name, "tname": task_name},
         )
 
+    def merge_authored(self, author_uid: str, paper_uid: str, order: int) -> None:
+        self._client.run_query(
+            "MATCH (a:Author {uid: $auid}) "
+            "MATCH (p:Paper {uid: $puid}) "
+            "MERGE (a)-[r:AUTHORED]->(p) "
+            "SET r.order = $order",
+            {"auid": author_uid, "puid": paper_uid, "order": order},
+        )
+
     def merge_evaluated_on(
         self,
         method_name: str,
@@ -205,7 +214,7 @@ class GraphExploreRepository:
         """Get node/edge counts per label."""
         counts: dict[str, int] = {}
         try:
-            for model in ALL_NODE_MODELS:
+            for model in ALL_MODELS:
                 label = _validate_label(model.__label__)
                 rows = self._client.run_query(
                     f"MATCH (n:{label}) RETURN count(n) AS c"

@@ -54,19 +54,19 @@ def get_graph_app() -> typer.Typer:
             help="Process at most this many items (0 = unlimited).",
         ),
         resume: bool = typer.Option(
-            False, "--resume",
+            False,
             help="Resume from last checkpoint, skipping completed node types.",
         ),
         skip_embedded: bool = typer.Option(
-            False, "--skip-embedded",
+            False,
             help="Skip embedding for nodes that already have vectors in Neo4j.",
         ),
         reset: bool = typer.Option(
-            False, "--reset",
+            False,
             help="Reset progress checkpoint before starting.",
         ),
-        no_relationships: bool = typer.Option(
-            False, "--no-relationships",
+        skip_relationships: bool = typer.Option(
+            False,
             help="Skip relationship ingestion (nodes only).",
         ),
     ):
@@ -92,7 +92,7 @@ def get_graph_app() -> typer.Typer:
                 skip_embedded=skip_embedded,
             )
 
-            if not no_relationships:
+            if not skip_relationships:
                 print_info("Ingesting relationships...")
                 usecase.ingest_relationships()
 
@@ -128,6 +128,11 @@ def get_graph_app() -> typer.Typer:
                 labels, rels = usecase.get_schema()
                 console.print(f"  Node labels: {labels}")
                 console.print(f"  Relationship types: {rels}")
+                stats = usecase.get_stats()
+                console.print("  Node counts:")
+                for label, count in stats.get("node_counts", {}).items():
+                    console.print(f"    {label}: {count:,}")
+                console.print(f"  Total relationships: {stats.get('relationship_count', 0):,}")
             else:
                 print_error("Neo4j is not reachable")
         except Exception as e:

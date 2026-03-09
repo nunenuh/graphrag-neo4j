@@ -24,9 +24,10 @@ def iter_papers(
         offset: Skip this many *valid* items before yielding.
         limit: Yield at most this many items (0 = unlimited).
     """
+    papers = data[:max_papers] if max_papers > 0 else data
     yielded = 0
     skipped = 0
-    for p in data[:max_papers]:
+    for p in papers:
         if not p.get("title") or not p.get("abstract"):
             continue
         if skipped < offset:
@@ -124,7 +125,8 @@ def iter_authors(data: list, max_papers: int = 5000) -> Iterator[dict]:
     De-duplicates by stripped name across all papers.
     """
     seen: set[str] = set()
-    for p in data[:max_papers]:
+    papers = data[:max_papers] if max_papers > 0 else data
+    for p in papers:
         for raw_name in p.get("authors") or []:
             name = raw_name.strip()
             if not name or name in seen:
@@ -140,7 +142,8 @@ def iter_author_paper_edges(
 
     Yields dicts with keys: author_name, paper_uid, order.
     """
-    for p in data[:max_papers]:
+    papers = data[:max_papers] if max_papers > 0 else data
+    for p in papers:
         if not p.get("title") or not p.get("abstract"):
             continue
         paper_uid = p.get("paper_url", p.get("id", ""))
