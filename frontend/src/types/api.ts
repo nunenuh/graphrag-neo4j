@@ -130,6 +130,15 @@ export interface HealthResponse {
   uptime_seconds: number;
 }
 
+// /api/v1/graph/stats
+
+export interface GraphStats {
+  total_nodes: number;
+  total_edges: number;
+  node_counts: Record<string, number>;
+  edge_counts: Record<string, number>;
+}
+
 // Client-side error type
 
 export class ApiError extends Error {

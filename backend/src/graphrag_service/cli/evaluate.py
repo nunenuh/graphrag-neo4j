@@ -21,7 +21,7 @@ def get_eval_app() -> typer.Typer:
     def run(
         category: str = typer.Option("", "--category", help="Run only this category (e.g. FACTUAL_LOOKUP)"),
         output: str = typer.Option("", "--output", help="Output JSON file path"),
-        markdown: bool = typer.Option(False, "--markdown", help="Also output markdown report"),
+        markdown: bool = typer.Option(False, help="Also output markdown report"),
     ):
         """Run evaluation suite against the RAG pipeline."""
         # Import here to avoid circular imports and loading models at CLI parse time

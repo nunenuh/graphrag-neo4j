@@ -13,6 +13,7 @@ from loguru import logger
 from graphrag_service.core.config import get_settings
 from graphrag_service.library.llm import embed_batch
 from graphrag_service.library.parsers import (
+    iter_authors,
     iter_datasets,
     iter_methods,
     iter_papers,
@@ -66,6 +67,18 @@ class GraphService:
         settings = get_settings()
         data = load_json(self.data_dir() / "datasets.json")
         return iter_datasets(data, max_items=settings.MAX_DATASETS, offset=offset, limit=limit)
+
+    def load_authors(
+        self, offset: int = 0, limit: int = 0
+    ) -> Iterator[dict]:
+        """Load and parse authors extracted from papers.json."""
+        settings = get_settings()
+        data = load_json(self.data_dir() / "papers.json")
+        authors = list(iter_authors(data, max_papers=settings.MAX_PAPERS))
+        # Apply offset/limit manually since iter_authors doesn't support them
+        start = offset
+        end = (offset + limit) if limit > 0 else len(authors)
+        yield from authors[start:end]
 
     def load_evaluations(self) -> list:
         """Load evaluation data from JSON."""
