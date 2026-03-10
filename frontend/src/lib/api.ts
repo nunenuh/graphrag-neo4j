@@ -8,6 +8,8 @@
 import type {
   AnalyticsRunResponse,
   CommunitiesResponse,
+  EvalQueriesResponse,
+  EvalReport,
   ExploreResponse,
   GraphStats,
   HealthResponse,
@@ -119,4 +121,24 @@ export async function fetchTrends(
   return apiFetch<TrendsResponse>(
     `/api/v1/analytics/trends?type=${type}&limit=${limit}`,
   );
+}
+
+export async function fetchEvalQueries(
+  category?: string,
+): Promise<EvalQueriesResponse> {
+  const params = category ? `?category=${encodeURIComponent(category)}` : "";
+  return apiFetch<EvalQueriesResponse>(`/api/v1/eval/queries${params}`);
+}
+
+export async function runEvaluation(
+  category?: string,
+): Promise<EvalReport> {
+  const params = category ? `?category=${encodeURIComponent(category)}` : "";
+  return apiFetch<EvalReport>(`/api/v1/eval/run${params}`, {
+    method: "POST",
+  });
+}
+
+export async function fetchLatestReport(): Promise<EvalReport> {
+  return apiFetch<EvalReport>("/api/v1/eval/report/latest");
 }

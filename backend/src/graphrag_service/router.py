@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from .core.auth import get_api_key
 from .modules.analytics.apiv1.handler import router as analytics_router
 from .modules.entity_resolution.apiv1.handler import router as er_router
+from .modules.eval.apiv1.handler import router as eval_router
 from .modules.graph.apiv1.handler import router as graph_router
 from .modules.health.apiv1.handler import router as health_router
 from .modules.rag.apiv1.handler import router as rag_router
@@ -28,4 +29,7 @@ api_router.include_router(
 )
 api_router.include_router(
     analytics_router, prefix="/v1/analytics", tags=["Analytics"], dependencies=[Depends(get_api_key)]
+)
+api_router.include_router(
+    eval_router, prefix="/v1/eval", tags=["Evaluation"], dependencies=[Depends(get_api_key)]
 )
