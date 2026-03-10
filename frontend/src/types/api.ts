@@ -164,6 +164,48 @@ export interface NodeDetail {
   incoming: Array<{ from: string; type: string }>;
 }
 
+// /api/v1/analytics/run
+
+export interface AnalyticsRunResponse {
+  communities_detected: number;
+  authors_with_centrality: number;
+  methods_with_trends: number;
+  tasks_with_trends: number;
+  message: string;
+}
+
+// /api/v1/analytics/communities
+
+export interface CommunityMember {
+  uid: string;
+  name: string;
+  pagerank?: number;
+}
+
+export interface Community {
+  community_id: number;
+  member_count: number;
+  top_members: CommunityMember[];
+}
+
+export interface CommunitiesResponse {
+  total_communities: number;
+  communities: Community[];
+}
+
+// /api/v1/analytics/trends
+
+export interface TrendingItem {
+  uid: string;
+  name: string;
+  trend_score: number;
+}
+
+export interface TrendsResponse {
+  entity_type: string;
+  items: TrendingItem[];
+}
+
 // Client-side error type
 
 export class ApiError extends Error {

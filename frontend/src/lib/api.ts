@@ -6,6 +6,8 @@
  */
 
 import type {
+  AnalyticsRunResponse,
+  CommunitiesResponse,
   ExploreResponse,
   GraphStats,
   HealthResponse,
@@ -15,6 +17,7 @@ import type {
   QueryResponse,
   SchemaResponse,
   SearchResponse,
+  TrendsResponse,
 } from "@/types/api";
 import { ApiError } from "@/types/api";
 
@@ -93,4 +96,27 @@ export async function searchNodes(
 
 export async function fetchNodeDetail(uid: string): Promise<NodeDetail> {
   return apiFetch<NodeDetail>(`/api/v1/graph/nodes/${encodeURIComponent(uid)}`);
+}
+
+export async function runAnalytics(): Promise<AnalyticsRunResponse> {
+  return apiFetch<AnalyticsRunResponse>("/api/v1/analytics/run", {
+    method: "POST",
+  });
+}
+
+export async function fetchCommunities(
+  limit = 50,
+): Promise<CommunitiesResponse> {
+  return apiFetch<CommunitiesResponse>(
+    `/api/v1/analytics/communities?limit=${limit}`,
+  );
+}
+
+export async function fetchTrends(
+  type: "Method" | "Task" = "Method",
+  limit = 10,
+): Promise<TrendsResponse> {
+  return apiFetch<TrendsResponse>(
+    `/api/v1/analytics/trends?type=${type}&limit=${limit}`,
+  );
 }
