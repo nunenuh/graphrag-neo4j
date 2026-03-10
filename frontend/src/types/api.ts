@@ -80,7 +80,8 @@ export interface SchemaResponse {
 // /api/v1/graph/explore
 
 export interface ExploreNode {
-  id: string;
+  id?: string;
+  uid?: string;
   name: string;
   label: NodeLabel;
 }
@@ -137,6 +138,30 @@ export interface GraphStats {
   total_edges: number;
   node_counts: Record<string, number>;
   edge_counts: Record<string, number>;
+}
+
+// /api/v1/graph/search
+
+export interface SearchResult {
+  uid: string;
+  label: string;
+  name: string;
+  properties: Record<string, unknown>;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  count: number;
+}
+
+// /api/v1/graph/nodes/{uid}
+
+export interface NodeDetail {
+  uid: string;
+  label: string;
+  properties: Record<string, unknown>;
+  outgoing: Array<{ to: string; type: string }>;
+  incoming: Array<{ from: string; type: string }>;
 }
 
 // Client-side error type

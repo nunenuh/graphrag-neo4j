@@ -10,9 +10,11 @@ import type {
   GraphStats,
   HealthResponse,
   Neo4jPingResponse,
+  NodeDetail,
   PingResponse,
   QueryResponse,
   SchemaResponse,
+  SearchResponse,
 } from "@/types/api";
 import { ApiError } from "@/types/api";
 
@@ -77,4 +79,18 @@ export async function checkHealth(): Promise<HealthResponse> {
 
 export async function fetchGraphStats(): Promise<GraphStats> {
   return apiFetch<GraphStats>("/api/v1/graph/stats");
+}
+
+export async function searchNodes(
+  q: string,
+  label?: string,
+  limit = 20,
+): Promise<SearchResponse> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  if (label) params.set("label", label);
+  return apiFetch<SearchResponse>(`/api/v1/graph/search?${params}`);
+}
+
+export async function fetchNodeDetail(uid: string): Promise<NodeDetail> {
+  return apiFetch<NodeDetail>(`/api/v1/graph/nodes/${encodeURIComponent(uid)}`);
 }
