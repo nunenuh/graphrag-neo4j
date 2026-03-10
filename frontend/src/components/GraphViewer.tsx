@@ -10,6 +10,7 @@ interface GraphViewerProps {
   edges: GraphEdge[];
   seedNodeIds: Set<string>;
   onNodeSelect?: (nodeId: string | null) => void;
+  emptyMessage?: string;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -22,7 +23,7 @@ const NODE_COLORS: Record<string, string> = {
 const DEFAULT_COLOR = "#64748b";
 const REL_COLOR = "rgba(148, 163, 184, 0.5)";
 
-export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphViewerProps) {
+export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect, emptyMessage }: GraphViewerProps) {
   const nvlRef = useRef<NVL>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -106,8 +107,10 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
       style={{ width: "100%", height: "100%", position: "relative" }}
     >
       {!hasNodes && (
-        <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-          <span className="text-sm">Ask a question to see the knowledge graph</span>
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-4 text-center">
+          <span className="text-sm bg-card/50 backdrop-blur-sm border border-border/50 py-2 px-4 rounded-xl shadow-sm">
+            {emptyMessage || "Ask a question to see the knowledge graph"}
+          </span>
         </div>
       )}
 

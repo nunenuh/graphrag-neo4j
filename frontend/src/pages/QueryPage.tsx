@@ -6,7 +6,7 @@ import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { queryGraph } from "@/lib/api";
 import { ApiError } from "@/types/api";
 import type { SeedNode, GraphNode, GraphEdge, PipelineMetadata } from "@/types/api";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, MessageSquareText } from "lucide-react";
 
 const EXAMPLE_QUESTIONS = [
   "What methods are used for object detection?",
@@ -70,57 +70,80 @@ export default function QueryPage() {
     : null;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Error banner */}
-      {error && (
-        <div className="mx-4 mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-2">
-          <AlertCircle size={14} className="text-destructive mt-0.5 shrink-0" />
-          <p className="text-xs text-destructive">{error}</p>
-        </div>
-      )}
+    <div className="flex-1 flex flex-col min-h-0 bg-background/50">
+      <div className="flex-1 p-4 md:p-8 flex flex-col gap-6 min-h-0 max-w-[1400px] mx-auto w-full">
+        {/* Modern Header Section */}
+        <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card to-secondary/30 p-6 md:p-8 shadow-sm shrink-0">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"></div>
+          <div className="absolute -inset-y-0 right-0 w-1/3 bg-primary/5 blur-[100px] rounded-full pointer-events-none"></div>
 
-      {/* Main layout */}
-      <div className="flex-1 p-3 grid grid-cols-[minmax(360px,2fr)_3fr] gap-3 min-h-0">
-        {/* Left: Chat */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
-          <div className="flex-1 flex flex-col p-4">
-            <ChatPanel
-              onSubmit={handleSubmit}
-              answer={answer}
-              seedNodes={seedNodes}
-              isLoading={isLoading}
-              latencyMs={latencyMs ?? undefined}
-              metadata={metadata}
-              exampleQuestions={EXAMPLE_QUESTIONS}
-            />
+          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
+                  <MessageSquareText size={24} />
+                </div>
+                <h1 className="text-3xl font-bold tracking-tight">Graph Query</h1>
+              </div>
+              <p className="text-muted-foreground text-sm max-w-xl leading-relaxed mt-3">
+                Ask natural language questions to interact with your knowledge graph. View extracted answers, query trace, and related subgraphs.
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Right: Graph + Cypher */}
-        <div className="flex flex-col gap-2 min-h-0">
-          <div className="relative flex-1 overflow-hidden rounded-xl border border-border/50 bg-[hsl(var(--graph-bg))]">
-            <GraphViewer
-              nodes={nodes}
-              edges={edges}
-              seedNodeIds={seedNodeIds}
-              onNodeSelect={handleNodeSelect}
-            />
-            {selectedNode && (
-              <NodeDetailPanel
-                node={selectedNode}
-                edges={edges}
-                allNodes={nodes}
-                isSeed={seedNodeIds.has(selectedNodeId!)}
-                onClose={() => setSelectedNodeId(null)}
-                onNodeSelect={(id) => setSelectedNodeId(id)}
+        {/* Error banner */}
+        {error && (
+          <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-500 font-medium flex items-center gap-2 animate-in fade-in slide-in-from-top-2 shrink-0">
+            <AlertCircle size={16} className="shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {/* Main layout */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(360px,2fr)_3fr] gap-6 min-h-0">
+          {/* Left: Chat */}
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm shadow-sm">
+            <div className="flex-1 flex flex-col p-4 md:p-6 custom-scrollbar overflow-auto">
+              <ChatPanel
+                onSubmit={handleSubmit}
+                answer={answer}
+                seedNodes={seedNodes}
+                isLoading={isLoading}
+                latencyMs={latencyMs ?? undefined}
+                metadata={metadata}
+                exampleQuestions={EXAMPLE_QUESTIONS}
               />
+            </div>
+          </div>
+
+          {/* Right: Graph + Cypher */}
+          <div className="flex flex-col gap-4 min-h-0">
+            <div className="relative flex-1 overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm shadow-sm">
+              <GraphViewer
+                nodes={nodes}
+                edges={edges}
+                seedNodeIds={seedNodeIds}
+                onNodeSelect={handleNodeSelect}
+              />
+              {selectedNode && (
+                <NodeDetailPanel
+                  node={selectedNode}
+                  edges={edges}
+                  allNodes={nodes}
+                  isSeed={seedNodeIds.has(selectedNodeId!)}
+                  onClose={() => setSelectedNodeId(null)}
+                  onNodeSelect={(id) => setSelectedNodeId(id)}
+                />
+              )}
+            </div>
+            {cypher && (
+              <div className="rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm p-4 shadow-sm shrink-0">
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-primary">Generated Cypher</h3>
+                <CypherPanel cypher={cypher} />
+              </div>
             )}
           </div>
-          {cypher && (
-            <div className="rounded-xl border border-border/50 bg-card p-2">
-              <CypherPanel cypher={cypher} />
-            </div>
-          )}
         </div>
       </div>
     </div>

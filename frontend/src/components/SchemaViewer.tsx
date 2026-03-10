@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import { GitBranch, Tag } from "lucide-react";
 import type { SchemaResponse } from "@/types/api";
 
@@ -16,55 +16,49 @@ interface SchemaViewerProps {
 
 export function SchemaViewer({ schema }: SchemaViewerProps) {
   return (
-    <Card className="border-border/50">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Tag size={14} className="text-muted-foreground" />
-          Graph Schema
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!schema ? (
-          <p className="text-xs text-muted-foreground">Loading...</p>
-        ) : (
-          <>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2">
-                Node Labels
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {schema.node_labels.map((label) => (
+    <div className="space-y-6">
+      {!schema ? (
+        <p className="text-xs text-muted-foreground animate-pulse">Loading schema...</p>
+      ) : (
+        <>
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <Tag size={12} /> Node Labels
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {schema.node_labels.map((label) => (
+                <span
+                  key={label}
+                  className="flex items-center gap-2 text-sm text-foreground bg-background/50 border border-border/50 px-3 py-1.5 rounded-lg shadow-sm"
+                >
                   <span
-                    key={label}
-                    className="flex items-center gap-1.5 text-xs text-foreground"
-                  >
-                    <span
-                      className={`w-2.5 h-2.5 rounded-full ${LABEL_COLORS[label] ?? "bg-gray-500"}`}
-                    />
-                    {label}
-                  </span>
-                ))}
-              </div>
+                    className={`w-2.5 h-2.5 rounded-full shadow-sm ${LABEL_COLORS[label] ?? "bg-gray-500 shadow-gray-500/50"}`}
+                    style={LABEL_COLORS[label] ? { boxShadow: `0 0 8px var(--tw-shadow-color)` } : {}}
+                  />
+                  {label}
+                </span>
+              ))}
             </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2">
-                Relationships
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {schema.relationship_types.map((rel) => (
-                  <span
-                    key={rel}
-                    className="flex items-center gap-1.5 text-xs text-foreground"
-                  >
-                    <GitBranch size={12} className="text-muted-foreground" />
-                    {rel}
-                  </span>
-                ))}
-              </div>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <GitBranch size={12} /> Relationships
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {schema.relationship_types.map((rel) => (
+                <span
+                  key={rel}
+                  className="flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary/30 border border-border/50 px-2.5 py-1 rounded-md"
+                >
+                  <GitBranch size={12} className="text-muted-foreground" />
+                  {rel}
+                </span>
+              ))}
             </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
