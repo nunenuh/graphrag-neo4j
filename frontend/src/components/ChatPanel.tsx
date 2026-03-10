@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Loader2, Sparkles, Clock, Brain, Search, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
+import { Send, Loader2, Sparkles, Brain, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
 import type { SeedNode, PipelineMetadata } from "@/types/api";
 
 const BADGE_COLORS: Record<string, string> = {
