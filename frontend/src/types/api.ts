@@ -225,6 +225,48 @@ export interface TrendsResponse {
   items: TrendingItem[];
 }
 
+// /api/v1/eval/queries
+
+export interface EvalQueryInfo {
+  id: string;
+  category: string;
+  question: string;
+  difficulty: string;
+  expected_entities: string[];
+  min_hops: number;
+}
+
+export interface EvalQueriesResponse {
+  queries: EvalQueryInfo[];
+  count: number;
+}
+
+// /api/v1/eval/run & /api/v1/eval/report/latest
+
+export interface EvalResultItem {
+  query_id: string;
+  category: string;
+  question: string;
+  answer: string;
+  latency_ms: number;
+  query_type: string;
+  retrieval_strategy: string;
+  provenance_score: number;
+  metrics: Record<string, number>;
+}
+
+export interface EvalReport {
+  timestamp: string;
+  system_name: string;
+  total_queries: number;
+  successful_queries: number;
+  metrics_summary: Record<string, number>;
+  metrics_by_category: Record<string, Record<string, number>>;
+  failures: string[];
+  comparison: Record<string, Record<string, number>> | null;
+  results: EvalResultItem[];
+}
+
 // Client-side error type
 
 export class ApiError extends Error {
