@@ -39,7 +39,7 @@ export function TrendingChart({ title, items, color }: TrendingChartProps) {
                 />
               </div>
               <span className="text-[11px] text-muted-foreground tabular-nums w-12 text-right shrink-0">
-                {item.trend_score.toFixed(1)}
+                {item.trend_score?.toFixed(1) ?? "—"}
               </span>
             </div>
           );

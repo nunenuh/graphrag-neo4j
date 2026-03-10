@@ -82,7 +82,7 @@ export function CentralityTable({ members }: CentralityTableProps) {
                 {m.name}
               </TableCell>
               <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                {m.pagerank !== undefined ? m.pagerank.toFixed(6) : "—"}
+                {typeof m.pagerank === "number" ? m.pagerank.toFixed(6) : "—"}
               </TableCell>
             </TableRow>
           ))}

@@ -106,6 +106,21 @@ def get_graph_app() -> typer.Typer:
         finally:
             close_neo4j_client()
 
+    @app.command(name="ingest-rels")
+    def ingest_rels():
+        """Ingest relationships only (AUTHORED, USED_FOR, EVALUATED_ON)."""
+        print_info("Ingesting relationships...")
+        try:
+            client = get_neo4j_client()
+            usecase = GraphUseCase(client)
+            usecase.ingest_relationships()
+            print_success("Relationship ingestion complete")
+        except Exception as e:
+            print_error(f"Relationship ingestion failed: {e}")
+            raise typer.Exit(code=1)
+        finally:
+            close_neo4j_client()
+
     @app.command(name="ingest-status")
     def ingest_status():
         """Show ingestion progress from checkpoint file."""

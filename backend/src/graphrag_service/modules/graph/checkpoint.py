@@ -33,6 +33,12 @@ class NodeTypeProgress(BaseModel):
         self.last_batch_index += 1
         self.updated_at = datetime.now(timezone.utc).isoformat()
 
+    def validate_consistency(self, batch_size: int) -> None:
+        """Check and fix consistency between total_parsed and last_batch_index."""
+        expected_index = self.total_parsed // batch_size if batch_size > 0 else 0
+        if self.last_batch_index != expected_index and self.total_parsed > 0:
+            self.last_batch_index = expected_index
+
     def mark_completed(self) -> None:
         """Mark this node type as fully ingested."""
         self.completed = True
@@ -62,7 +68,9 @@ class IngestCheckpoint(BaseModel):
         )
 
 
-DEFAULT_CHECKPOINT_PATH = Path("data/.ingest_progress.json")
+# __file__ is modules/graph/checkpoint.py → go up 6 levels to project root
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent
+DEFAULT_CHECKPOINT_PATH = _PROJECT_ROOT / "data" / ".ingest_progress.json"
 
 
 def load_checkpoint(path: Optional[Path] = None) -> IngestCheckpoint:
@@ -71,7 +79,8 @@ def load_checkpoint(path: Optional[Path] = None) -> IngestCheckpoint:
     if not p.exists():
         return IngestCheckpoint()
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        text = p.read_text(encoding="utf-8")
+        raw = json.loads(text)
         return IngestCheckpoint.model_validate(raw)
     except (json.JSONDecodeError, ValueError):
         return IngestCheckpoint()

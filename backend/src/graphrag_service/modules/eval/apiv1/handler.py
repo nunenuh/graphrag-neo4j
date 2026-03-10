@@ -26,12 +26,12 @@ def _get_report_path() -> Path:
 
 def _get_all_queries():
     """Import and return all evaluation queries."""
-    from tests.evaluation.queries import ALL_QUERIES
-    return ALL_QUERIES
+    from tests.evaluation.queries import get_all_queries
+    return get_all_queries()
 
 
 @router.get("/queries", response_model=EvalQueriesResponse)
-async def list_eval_queries(
+def list_eval_queries(
     category: str | None = Query(None, description="Filter by category"),
 ):
     """List all 40 evaluation queries (optionally filtered by category)."""
@@ -60,18 +60,18 @@ async def list_eval_queries(
 
 
 @router.post("/run", response_model=EvalReportResponse)
-async def run_evaluation(
+def run_evaluation(
     category: str | None = Query(None, description="Run only specific category"),
     client: Neo4jClient = Depends(get_neo4j_client),
 ):
     """Run evaluation suite and return report. Results are cached to disk."""
     try:
-        from tests.evaluation.queries import ALL_QUERIES
+        from tests.evaluation.queries import get_all_queries
         from tests.evaluation.runner import EvaluationRunner
     except ImportError:
         raise HTTPException(status_code=500, detail="Evaluation framework not available")
 
-    queries = ALL_QUERIES
+    queries = get_all_queries()
     if category:
         queries = [q for q in queries if q.category == category]
 
@@ -94,7 +94,7 @@ async def run_evaluation(
 
 
 @router.get("/report/latest", response_model=EvalReportResponse)
-async def get_latest_report():
+def get_latest_report():
     """Get the latest cached evaluation report."""
     report_path = _get_report_path()
     if not report_path.exists():

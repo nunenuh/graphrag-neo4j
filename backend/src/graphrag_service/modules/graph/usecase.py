@@ -110,6 +110,7 @@ class GraphUseCase:
         for model, loader_name in loaders:
             label = model.__label__
             progress = checkpoint.get_or_create(label)
+            progress.validate_consistency(batch_size)
 
             if resume and progress.completed:
                 logger.info(f"Skipping {label} — already completed in checkpoint")
@@ -149,6 +150,7 @@ class GraphUseCase:
                     model, batch, skip_embedded, embedded_cache.get(label, set()),
                     progress,
                 )
+                save_checkpoint(checkpoint, checkpoint_path)
 
             progress.mark_completed()
             save_checkpoint(checkpoint, checkpoint_path)
