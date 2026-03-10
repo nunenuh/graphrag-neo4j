@@ -215,11 +215,20 @@ class GraphUseCase:
         self._client.run_query(cypher, {"rows": nodes})
 
     def ingest_relationships(self) -> None:
-        """Ingest relationships: service loads data, repository writes to DB."""
+        """Ingest relationships using batched UNWIND queries for performance."""
         from graphrag_service.library.parsers import iter_author_paper_edges, load_json
 
+        settings = get_settings()
+        batch_size = settings.INGEST_BATCH_SIZE
+
+        # Phase 1: USED_FOR + EVALUATED_ON from evaluations.json
         logger.info("Ingesting USED_FOR + EVALUATED_ON relationships...")
         evals = self.service.load_evaluations()
+
+        used_for_batch: list[dict] = []
+        eval_on_batch: list[dict] = []
+        uf_total = 0
+        eo_total = 0
 
         for ev in tqdm(evals, desc="USED_FOR + EVALUATED_ON"):
             task_name = ev.get("task", "")
@@ -231,7 +240,10 @@ class GraphUseCase:
                 if not dataset_name:
                     continue
 
-                self.node_repo.merge_used_for(dataset_name, task_name)
+                used_for_batch.append({"dname": dataset_name, "tname": task_name})
+                if len(used_for_batch) >= batch_size:
+                    uf_total += self.node_repo.batch_merge_used_for(used_for_batch)
+                    used_for_batch = []
 
                 for row in (ds_entry.get("sota", {}).get("rows", []))[:5]:
                     method_name = row.get("model_name", "")
@@ -239,23 +251,40 @@ class GraphUseCase:
                         continue
                     metrics = row.get("metrics", {})
                     for metric_name, metric_value in metrics.items():
-                        self.node_repo.merge_evaluated_on(
-                            method_name=method_name,
-                            dataset_name=dataset_name,
-                            metric=metric_name,
-                            score=str(metric_value),
-                        )
+                        eval_on_batch.append({
+                            "mname": method_name,
+                            "dname": dataset_name,
+                            "metric": metric_name,
+                            "score": str(metric_value),
+                        })
+                        if len(eval_on_batch) >= batch_size:
+                            eo_total += self.node_repo.batch_merge_evaluated_on(eval_on_batch)
+                            eval_on_batch = []
 
+        # Flush remaining
+        uf_total += self.node_repo.batch_merge_used_for(used_for_batch)
+        eo_total += self.node_repo.batch_merge_evaluated_on(eval_on_batch)
+        logger.info(f"USED_FOR: {uf_total} edges, EVALUATED_ON: {eo_total} edges")
+
+        # Phase 2: AUTHORED from papers.json
         logger.info("Ingesting AUTHORED relationships...")
-        settings = get_settings()
         papers_data = load_json(self.service.data_dir() / "papers.json")
-        edges = list(iter_author_paper_edges(papers_data, max_papers=settings.MAX_PAPERS))
+        edges = iter_author_paper_edges(papers_data, max_papers=settings.MAX_PAPERS)
+
+        authored_batch: list[dict] = []
+        auth_total = 0
+
         for edge in tqdm(edges, desc="AUTHORED"):
             author_uid = f"author:{edge['author_name'].lower().replace(' ', '_')}"
-            self.node_repo.merge_authored(
-                author_uid=author_uid,
-                paper_uid=edge["paper_uid"],
-                order=edge["order"],
-            )
+            authored_batch.append({
+                "auid": author_uid,
+                "puid": edge["paper_uid"],
+                "order": edge["order"],
+            })
+            if len(authored_batch) >= batch_size:
+                auth_total += self.node_repo.batch_merge_authored(authored_batch)
+                authored_batch = []
 
+        auth_total += self.node_repo.batch_merge_authored(authored_batch)
+        logger.info(f"AUTHORED: {auth_total} edges")
         logger.info("Relationships ingestion done")

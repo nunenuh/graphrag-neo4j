@@ -179,6 +179,49 @@ class NodeRepository:
             },
         )
 
+    # ---- Batch relationship methods (UNWIND-based, much faster) ----
+
+    def batch_merge_used_for(self, rows: list[dict]) -> int:
+        """Batch MERGE Dataset-[:USED_FOR]->Task. rows: [{dname, tname}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (d:Dataset {name: row.dname}) "
+            "MATCH (t:Task {name: row.tname}) "
+            "MERGE (d)-[:USED_FOR]->(t)",
+            {"rows": rows},
+        )
+        return len(rows)
+
+    def batch_merge_evaluated_on(self, rows: list[dict]) -> int:
+        """Batch MERGE Method-[:EVALUATED_ON]->Dataset. rows: [{mname, dname, metric, score}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (m:Method {name: row.mname}) "
+            "MATCH (d:Dataset {name: row.dname}) "
+            "MERGE (m)-[r:EVALUATED_ON {metric: row.metric}]->(d) "
+            "SET r.score = row.score",
+            {"rows": rows},
+        )
+        return len(rows)
+
+    def batch_merge_authored(self, rows: list[dict]) -> int:
+        """Batch MERGE Author-[:AUTHORED]->Paper. rows: [{auid, puid, order}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (a:Author {uid: row.auid}) "
+            "MATCH (p:Paper {uid: row.puid}) "
+            "MERGE (a)-[r:AUTHORED]->(p) "
+            "SET r.order = row.order",
+            {"rows": rows},
+        )
+        return len(rows)
+
 
 class GraphExploreRepository:
     """Encapsulates graph exploration queries."""
