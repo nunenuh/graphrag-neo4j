@@ -14,12 +14,12 @@ SEARCH_LABELS: list[str] = ["Paper", "Method", "Task", "Dataset"]
 
 TRAVERSE_QUERY = """
     MATCH (seed) WHERE seed.uid IN $ids
-    OPTIONAL MATCH (seed)-[r1]->(n1)
-    OPTIONAL MATCH (n1)-[r2]->(n2)
+    OPTIONAL MATCH (seed)-[r1]-(n1)
+    OPTIONAL MATCH (n1)-[r2]-(n2)
     RETURN seed, labels(seed)[0] AS seed_label,
-           collect(DISTINCT {from: seed.uid, to: n1.uid, type: type(r1), props: properties(r1)}) AS e1,
+           collect(DISTINCT {from: startNode(r1).uid, to: endNode(r1).uid, type: type(r1), props: properties(r1)}) AS e1,
            collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
-           collect(DISTINCT {from: n1.uid,  to: n2.uid, type: type(r2), props: properties(r2)}) AS e2,
+           collect(DISTINCT {from: startNode(r2).uid,  to: endNode(r2).uid, type: type(r2), props: properties(r2)}) AS e2,
            collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2
 """
 
