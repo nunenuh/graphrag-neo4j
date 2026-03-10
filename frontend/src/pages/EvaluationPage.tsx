@@ -59,62 +59,59 @@ export default function EvaluationPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background/50">
-      <div className="flex-1 p-4 md:p-8 flex flex-col gap-6 min-h-0 max-w-[1400px] mx-auto w-full">
-        {/* Modern Header Section */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card to-secondary/30 p-6 md:p-8 shadow-sm shrink-0">
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"></div>
-          <div className="absolute -inset-y-0 right-0 w-1/3 bg-primary/5 blur-[100px] rounded-full pointer-events-none"></div>
-
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
-                  <FlaskConical size={24} />
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight">Evaluation Dashboard</h1>
-              </div>
-              <p className="text-muted-foreground text-sm max-w-xl leading-relaxed mt-3">
-                Run automated benchmark queries against the knowledge graph to evaluate RAG answer accuracy, latency, and token consumption.
-              </p>
+      {/* White curtain drop header */}
+      <div className="bg-background/20 backdrop-blur-md border-b border-border/50 shadow-sm z-10 shrink-0">
+        <div className="max-w-[1920px] mx-auto w-full px-4 md:px-8 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <FlaskConical size={20} />
             </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-              {categories.length > 0 && (
-                <div className="relative">
-                  <select
-                    value={categoryFilter ?? ""}
-                    onChange={(e) => setCategoryFilter(e.target.value || null)}
-                    className="appearance-none w-full sm:w-40 bg-background/80 border border-border/50 text-foreground text-sm rounded-xl px-4 py-3 pr-8 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow transition-colors shadow-sm"
-                  >
-                    <option value="">All Categories</option>
-                    {categories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat.replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground">
-                    <svg className="h-4 w-4" opacity="0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={handleRunEvaluation}
-                disabled={isRunning}
-                className="group relative flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold shadow-[0_0_20px_-5px_hsl(var(--primary)/0.4)] hover:shadow-[0_0_25px_-5px_hsl(var(--primary)/0.6)] disabled:opacity-50 transition-all overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                {isRunning ? (
-                  <Loader2 size={18} className="animate-spin relative z-10" />
-                ) : (
-                  <Sparkles size={18} className="relative z-10" />
-                )}
-                <span className="relative z-10 tracking-wide">{isRunning ? "Running Benchmark..." : "Run Evaluation"}</span>
-              </button>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl font-bold tracking-tight text-foreground mt-0.5">Evaluation Dashboard</h1>
+              <span className="text-muted-foreground text-sm hidden sm:inline-block border-l border-border/50 pl-3">
+                Benchmark RAG answer accuracy and latency.
+              </span>
             </div>
           </div>
-        </div>
 
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            {categories.length > 0 && (
+              <div className="relative">
+                <select
+                  value={categoryFilter ?? ""}
+                  onChange={(e) => setCategoryFilter(e.target.value || null)}
+                  className="appearance-none w-full sm:w-40 bg-background border border-border/50 text-foreground text-sm rounded-lg px-3 py-2 pr-8 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors shadow-sm"
+                >
+                  <option value="">All Categories</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground">
+                  <svg className="h-4 w-4" opacity="0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={handleRunEvaluation}
+              disabled={isRunning}
+              className="group relative flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground font-semibold shadow-sm hover:shadow disabled:opacity-50 transition-all overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+              {isRunning ? (
+                <Loader2 size={16} className="animate-spin relative z-10" />
+              ) : (
+                <Sparkles size={16} className="relative z-10" />
+              )}
+              <span className="relative z-10">{isRunning ? "Running..." : "Run Evaluation"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 p-4 md:px-8 md:py-6 flex flex-col gap-4 min-h-0 max-w-[1920px] mx-auto w-full">
         {error && (
           <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-500 font-medium flex items-center gap-2 animate-in fade-in slide-in-from-top-2 shrink-0">
             <AlertTriangle size={16} className="shrink-0" />

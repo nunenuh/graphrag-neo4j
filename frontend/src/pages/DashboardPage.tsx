@@ -21,28 +21,25 @@ export default function DashboardPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background/50 overflow-auto custom-scrollbar">
-      <div className="flex flex-col gap-6 p-4 md:p-8 max-w-[1400px] mx-auto w-full">
-        {/* Modern Header Section */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card to-secondary/30 p-6 md:p-8 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent"></div>
-          <div className="absolute -inset-y-0 right-0 w-1/3 bg-primary/5 blur-[100px] rounded-full pointer-events-none"></div>
-
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
-                  <LayoutDashboard size={24} />
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight">System Dashboard</h1>
-              </div>
-              <p className="text-muted-foreground text-sm max-w-xl leading-relaxed mt-3">
-                Monitor knowledge graph statistics, service health status, and perform quick actions to manage your data sources.
-              </p>
+      {/* White curtain drop header */}
+      <div className="bg-background/20 backdrop-blur-md border-b border-border/50 shadow-sm z-10 shrink-0">
+        <div className="max-w-[1920px] mx-auto w-full px-4 md:px-8 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <LayoutDashboard size={20} />
+            </div>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl font-bold tracking-tight text-foreground mt-0.5">System Dashboard</h1>
+              <span className="text-muted-foreground text-sm hidden sm:inline-block border-l border-border/50 pl-3">
+                Monitor statistics, database schema, and service health.
+              </span>
             </div>
           </div>
         </div>
+      </div>
 
-        <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 p-4 md:px-8 md:py-6 max-w-[1920px] mx-auto w-full">
+        <div className="flex flex-col gap-4">
           <StatsCards stats={stats} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

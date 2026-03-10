@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Sparkles, Brain, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
@@ -36,6 +38,14 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [question, setQuestion] = useState("");
   const [showMetadata, setShowMetadata] = useState(true);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Auto-scroll to bottom whenever content updates
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [answer, seedNodes, metadata, showMetadata]);
 
   const handleSubmit = (q: string) => {
     if (!q.trim()) return;
@@ -110,9 +120,25 @@ export function ChatPanel({
               </div>
             )}
 
-            <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/90">
-              {answer}
-            </p>
+            <div className="text-[13px] leading-relaxed text-foreground/90 markdown-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-[15px] font-bold mb-2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-sm font-bold mb-2">{children}</h3>,
+                  p: ({ children }) => <p className="mb-3 last:mb-0 text-foreground/90">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li>{children}</li>,
+                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                  a: ({ children, href }) => <a href={href} className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                  code: ({ children }) => <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono text-foreground/80">{children}</code>,
+                }}
+              >
+                {answer}
+              </ReactMarkdown>
+            </div>
 
             {/* Provenance score */}
             {metadata?.provenance_score !== undefined && metadata?.provenance_score !== null && (
@@ -223,6 +249,8 @@ export function ChatPanel({
                 )}
               </div>
             )}
+
+            <div ref={bottomRef} />
           </div>
         </ScrollArea>
       )}

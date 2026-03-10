@@ -81,7 +81,8 @@ class AnalyticsService:
                     method_name = row.get("model_name", "")
                     if not method_name:
                         continue
-                    year = str(row.get("year", "unknown"))
+                    date_str = str(row.get("paper_date", "unknown"))
+                    year = date_str[:4] if date_str != "unknown" else "unknown"
                     if method_name not in method_task_data:
                         method_task_data[method_name] = []
                     method_task_data[method_name].append(

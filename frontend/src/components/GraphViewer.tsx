@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useCallback, useEffect } from "react";
+import { ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { InteractiveNvlWrapper } from "@neo4j-nvl/react";
 import type NVL from "@neo4j-nvl/base";
 import type { Node, Relationship, HitTargets } from "@neo4j-nvl/base";
@@ -136,6 +137,32 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect, emptyMess
             onLayoutDone: handleLayoutDone,
           }}
         />
+      )}
+
+      {canRender && (
+        <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 p-1 rounded-lg border border-border/50 bg-card/90 backdrop-blur-sm shadow-sm">
+          <button
+            onClick={() => { const z = nvlRef.current?.getScale(); if (z) nvlRef.current?.setZoom(z * 1.5); }}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Zoom In"
+          >
+            <ZoomIn size={16} />
+          </button>
+          <button
+            onClick={() => { const z = nvlRef.current?.getScale(); if (z) nvlRef.current?.setZoom(z / 1.5); }}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Zoom Out"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <button
+            onClick={handleLayoutDone}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Fit to screen"
+          >
+            <Maximize size={16} />
+          </button>
+        </div>
       )}
 
       {hasNodes && (
