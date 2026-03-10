@@ -137,6 +137,7 @@ class TestGraphExploreRepository:
 
     def test_get_stats(self, mock_neo4j_client):
         mock_neo4j_client.run_query.side_effect = [
+            [{"c": 5}],   # Author
             [{"c": 10}],  # Paper
             [{"c": 20}],  # Method
             [{"c": 30}],  # Task
@@ -147,7 +148,7 @@ class TestGraphExploreRepository:
         ]
         repo = GraphExploreRepository(mock_neo4j_client)
         stats = repo.get_stats()
-        assert stats["total_nodes"] == 100
+        assert stats["total_nodes"] == 105
         assert stats["total_edges"] == 8
         assert stats["node_counts"]["Paper"] == 10
         assert stats["edge_counts"]["USED_FOR"] == 5

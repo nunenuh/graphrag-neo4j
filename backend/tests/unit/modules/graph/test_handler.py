@@ -54,6 +54,7 @@ class TestGraphExploreEndpoint:
 class TestGraphStatsEndpoint:
     def test_success(self, client, auth_headers, mock_neo4j_client):
         mock_neo4j_client.run_query.side_effect = [
+            [{"c": 5}],   # Author
             [{"c": 10}], [{"c": 20}], [{"c": 30}], [{"c": 40}],
             [{"t": "USED_FOR"}],
             [{"c": 5}],
@@ -61,7 +62,7 @@ class TestGraphStatsEndpoint:
         resp = client.get("/api/v1/graph/stats", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_nodes"] == 100
+        assert data["total_nodes"] == 105
         assert "node_counts" in data
 
 

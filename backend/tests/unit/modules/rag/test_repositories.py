@@ -82,7 +82,8 @@ class TestTraversalRepository:
         mock_neo4j_client.run_query.return_value = [
             {
                 "seed": seed,
-                "nodes1": [n1],
+                "seed_label": "Paper",
+                "nodes1": [{"node": n1, "label": "Task"}],
                 "nodes2": [],
                 "e1": [{"from": "p1", "to": "t1", "type": "USED_FOR", "props": {}}],
                 "e2": [],
