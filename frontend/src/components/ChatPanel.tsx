@@ -3,6 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Sparkles, Brain, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
 import type { SeedNode, PipelineMetadata } from "@/types/api";
+import { QueryTypeBadge } from "@/components/QueryTypeBadge";
+import { RetrievalStrategyBadge } from "@/components/RetrievalStrategyBadge";
+import { ProvenanceBadge } from "@/components/ProvenanceBadge";
+import { UnsupportedClaimsPanel } from "@/components/UnsupportedClaimsPanel";
 
 const BADGE_COLORS: Record<string, string> = {
   Paper: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
@@ -98,9 +102,27 @@ export function ChatPanel({
       {answer && (
         <ScrollArea className="flex-1 rounded-lg border border-border/40 bg-secondary/30">
           <div className="p-4 space-y-3">
+            {/* Query type + retrieval strategy badges */}
+            {metadata && (metadata.query_type || metadata.retrieval_strategy) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <QueryTypeBadge queryType={metadata.query_type} />
+                <RetrievalStrategyBadge strategy={metadata.retrieval_strategy} />
+              </div>
+            )}
+
             <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/90">
               {answer}
             </p>
+
+            {/* Provenance score */}
+            {metadata?.provenance_score !== undefined && metadata?.provenance_score !== null && (
+              <ProvenanceBadge score={metadata.provenance_score} />
+            )}
+
+            {/* Unsupported claims warning */}
+            {metadata?.unsupported_claims && metadata.unsupported_claims.length > 0 && (
+              <UnsupportedClaimsPanel claims={metadata.unsupported_claims} />
+            )}
 
             {/* Pipeline Metadata */}
             {(latencyMs !== undefined || metadata) && (

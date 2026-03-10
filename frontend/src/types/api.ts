@@ -43,6 +43,21 @@ export interface GraphEdge {
 
 // Pipeline metadata for evaluation
 
+export type QueryType =
+  | "FACTUAL_LOOKUP"
+  | "COMPARISON"
+  | "TEMPORAL"
+  | "NETWORK"
+  | "EXPLORATORY"
+  | "AGGREGATION"
+  | "MULTI_HOP";
+
+export type RetrievalStrategy =
+  | "GRAPH_ONLY"
+  | "VECTOR_ONLY"
+  | "HYBRID_PARALLEL"
+  | "HYBRID_SEQUENTIAL";
+
 export interface PipelineMetadata {
   llm_provider: string;
   llm_model: string;
@@ -56,6 +71,10 @@ export interface PipelineMetadata {
   edge_count: number;
   context_length: number;
   step_timings: Record<string, number>;
+  query_type: string;
+  retrieval_strategy: string;
+  provenance_score: number | null;
+  unsupported_claims: string[];
 }
 
 // Main response
