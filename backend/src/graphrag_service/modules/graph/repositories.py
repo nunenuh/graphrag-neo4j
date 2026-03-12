@@ -326,6 +326,123 @@ class GraphExploreRepository:
             "incoming": incoming,
         }
 
+    def verify_graph(self) -> dict:
+        """Run comprehensive graph integrity checks."""
+        results: dict = {"checks": [], "passed": True}
+
+        # 1. Node counts
+        node_counts: dict[str, int] = {}
+        for model in ALL_MODELS:
+            label = _validate_label(model.__label__)
+            rows = self._client.run_query(
+                f"MATCH (n:{label}) RETURN count(n) AS c"
+            )
+            node_counts[label] = rows[0]["c"] if rows else 0
+        results["node_counts"] = node_counts
+
+        # 2. Relationship counts
+        edge_counts: dict[str, int] = {}
+        rel_rows = self._client.run_query(
+            "CALL db.relationshipTypes() YIELD relationshipType AS t RETURN t"
+        )
+        for row in rel_rows:
+            t = _validate_rel_type(row["t"])
+            cnt_rows = self._client.run_query(
+                f"MATCH ()-[r:{t}]->() RETURN count(r) AS c"
+            )
+            edge_counts[t] = cnt_rows[0]["c"] if cnt_rows else 0
+        results["edge_counts"] = edge_counts
+
+        # 3. Orphan nodes (no relationships)
+        orphan_counts: dict[str, int] = {}
+        for model in ALL_MODELS:
+            label = _validate_label(model.__label__)
+            rows = self._client.run_query(
+                f"MATCH (n:{label}) WHERE NOT (n)--() RETURN count(n) AS c"
+            )
+            orphan_counts[label] = rows[0]["c"] if rows else 0
+        results["orphan_counts"] = orphan_counts
+
+        # 4. Missing embeddings (Paper, Method, Task, Dataset should have them)
+        missing_embeddings: dict[str, int] = {}
+        for model in ALL_NODE_MODELS:
+            label = _validate_label(model.__label__)
+            rows = self._client.run_query(
+                f"MATCH (n:{label}) WHERE n.embedding IS NULL RETURN count(n) AS c"
+            )
+            missing_embeddings[label] = rows[0]["c"] if rows else 0
+        results["missing_embeddings"] = missing_embeddings
+
+        # 5. Duplicate names per label
+        duplicates: dict[str, list] = {}
+        for model in ALL_MODELS:
+            label = _validate_label(model.__label__)
+            rows = self._client.run_query(
+                f"MATCH (n:{label}) WHERE n.name IS NOT NULL "
+                f"WITH n.name AS name, count(n) AS cnt "
+                f"WHERE cnt > 1 RETURN name, cnt ORDER BY cnt DESC LIMIT 5"
+            )
+            if rows:
+                duplicates[label] = [{"name": r["name"], "count": r["cnt"]} for r in rows]
+        results["duplicates"] = duplicates
+
+        # 6. Constraints and indexes
+        try:
+            constraint_rows = self._client.run_query("SHOW CONSTRAINTS")
+            results["constraints_count"] = len(constraint_rows)
+        except Exception:
+            results["constraints_count"] = -1
+
+        try:
+            index_rows = self._client.run_query(
+                "SHOW INDEXES WHERE type = 'VECTOR'"
+            )
+            results["vector_indexes"] = [
+                {"name": r.get("name", ""), "labelsOrTypes": r.get("labelsOrTypes", [])}
+                for r in index_rows
+            ]
+        except Exception:
+            results["vector_indexes"] = []
+
+        # 7. Sample relationship validation
+        sample_checks: dict[str, bool] = {}
+        for rel_type, src, tgt in [
+            ("AUTHORED", "Author", "Paper"),
+            ("USED_FOR", "Dataset", "Task"),
+            ("EVALUATED_ON", "Method", "Dataset"),
+        ]:
+            rows = self._client.run_query(
+                f"MATCH (a:{src})-[r:{rel_type}]->(b:{tgt}) RETURN count(r) AS c LIMIT 1"
+            )
+            sample_checks[rel_type] = (rows[0]["c"] if rows else 0) > 0
+        results["relationship_direction_ok"] = sample_checks
+
+        # Compute pass/fail
+        checks = []
+
+        total_nodes = sum(node_counts.values())
+        checks.append({"name": "Has nodes", "passed": total_nodes > 0, "detail": f"{total_nodes:,} total"})
+
+        total_edges = sum(edge_counts.values())
+        checks.append({"name": "Has relationships", "passed": total_edges > 0, "detail": f"{total_edges:,} total"})
+
+        total_missing = sum(missing_embeddings.values())
+        checks.append({"name": "Embeddings complete", "passed": total_missing == 0, "detail": f"{total_missing:,} missing"})
+
+        has_dupes = any(duplicates.values())
+        checks.append({"name": "No duplicate names", "passed": not has_dupes, "detail": f"{sum(len(v) for v in duplicates.values())} duplicated names"})
+
+        all_rels_ok = all(sample_checks.values())
+        checks.append({"name": "Relationship directions correct", "passed": all_rels_ok, "detail": str(sample_checks)})
+
+        has_vector_idx = len(results.get("vector_indexes", [])) >= 4
+        checks.append({"name": "Vector indexes (≥4)", "passed": has_vector_idx, "detail": f"{len(results.get('vector_indexes', []))} found"})
+
+        results["checks"] = checks
+        results["passed"] = all(c["passed"] for c in checks)
+
+        return results
+
     def search_nodes(
         self, query: str, label: str | None = None, limit: int = 20
     ) -> list[dict]:

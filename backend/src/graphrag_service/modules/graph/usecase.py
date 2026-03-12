@@ -65,6 +65,10 @@ class GraphUseCase:
         """Get a single node by uid."""
         return self.explore_repo.get_node_by_uid(uid)
 
+    def verify_graph(self) -> dict:
+        """Run comprehensive graph integrity checks."""
+        return self.explore_repo.verify_graph()
+
     def search_nodes(self, query: str, label: str | None = None, limit: int = 20) -> list[dict]:
         """Search nodes by name."""
         return self.explore_repo.search_nodes(query, label=label, limit=limit)

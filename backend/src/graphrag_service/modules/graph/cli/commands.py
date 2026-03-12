@@ -132,6 +132,79 @@ def get_graph_app() -> typer.Typer:
         console.print(report)
 
     @app.command()
+    def verify():
+        """Run comprehensive graph integrity checks."""
+        print_info("Running graph verification checks...")
+        try:
+            client = get_neo4j_client()
+            usecase = GraphUseCase(client)
+            results = usecase.verify_graph()
+
+            # Node counts
+            console.print("\n[bold]Node Counts[/bold]")
+            for label, count in results["node_counts"].items():
+                console.print(f"  {label}: {count:,}")
+
+            # Edge counts
+            console.print("\n[bold]Relationship Counts[/bold]")
+            for rel_type, count in results["edge_counts"].items():
+                console.print(f"  {rel_type}: {count:,}")
+
+            # Orphan nodes
+            console.print("\n[bold]Orphan Nodes (no relationships)[/bold]")
+            for label, count in results["orphan_counts"].items():
+                if count > 0:
+                    print_warning(f"  {label}: {count:,} orphans")
+                else:
+                    console.print(f"  {label}: 0")
+
+            # Missing embeddings
+            console.print("\n[bold]Missing Embeddings[/bold]")
+            for label, count in results["missing_embeddings"].items():
+                if count > 0:
+                    print_warning(f"  {label}: {count:,} missing")
+                else:
+                    console.print(f"  {label}: 0")
+
+            # Duplicates
+            if results["duplicates"]:
+                console.print("\n[bold]Duplicate Names[/bold]")
+                for label, dupes in results["duplicates"].items():
+                    for d in dupes:
+                        print_warning(f"  {label}: \"{d['name']}\" x{d['count']}")
+            else:
+                console.print("\n[bold]Duplicate Names:[/bold] None")
+
+            # Vector indexes
+            console.print(f"\n[bold]Vector Indexes:[/bold] {len(results.get('vector_indexes', []))} found")
+            for idx in results.get("vector_indexes", []):
+                console.print(f"  {idx['name']} → {idx['labelsOrTypes']}")
+
+            # Constraints
+            console.print(f"[bold]Constraints:[/bold] {results.get('constraints_count', 0)}")
+
+            # Summary
+            console.print("\n[bold]Checks Summary[/bold]")
+            for check in results["checks"]:
+                icon = "✓" if check["passed"] else "✗"
+                style = "green" if check["passed"] else "red"
+                console.print(f"  [{style}]{icon}[/{style}] {check['name']}: {check['detail']}")
+
+            if results["passed"]:
+                print_success("\nAll checks passed!")
+            else:
+                print_error("\nSome checks failed — review above.")
+                raise typer.Exit(code=1)
+
+        except typer.Exit:
+            raise
+        except Exception as e:
+            print_error(f"Verification failed: {e}")
+            raise typer.Exit(code=1)
+        finally:
+            close_neo4j_client()
+
+    @app.command()
     def status():
         """Show graph database status."""
         try:
