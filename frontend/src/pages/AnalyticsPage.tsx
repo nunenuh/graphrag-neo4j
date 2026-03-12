@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CommunityList } from "@/components/CommunityList";
 import { TrendingChart } from "@/components/TrendingChart";
 import { CentralityTable } from "@/components/CentralityTable";
@@ -9,7 +10,7 @@ import type {
   CommunityMember,
   TrendingItem,
 } from "@/types/api";
-import { Loader2, Play, BarChart3 } from "lucide-react";
+import { Loader2, BarChart3, Sparkles, Users, Network, TrendingUp, CheckCircle2 } from "lucide-react";
 
 export default function AnalyticsPage() {
   const [isRunning, setIsRunning] = useState(false);
@@ -97,81 +98,149 @@ export default function AnalyticsPage() {
   const isLoading = isLoadingCommunities || isLoadingTrends;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex-1 p-3 flex flex-col gap-3 min-h-0 max-w-5xl mx-auto w-full">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={18} className="text-primary" />
-            <h1 className="text-lg font-semibold">Graph Analytics</h1>
+    <div className="flex-1 flex flex-col min-h-0 bg-background/50">
+      {/* White curtain drop header */}
+      <div className="bg-background/20 backdrop-blur-md border-b border-border/50 shadow-sm z-10 shrink-0">
+        <div className="max-w-[1920px] mx-auto w-full px-4 md:px-8 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <BarChart3 size={20} />
+            </div>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl font-bold tracking-tight text-foreground mt-0.5">Graph Analytics</h1>
+              <span className="text-muted-foreground text-sm hidden sm:inline-block border-l border-border/50 pl-3">
+                Run advanced algorithms to detect communities and metrics.
+              </span>
+            </div>
           </div>
+
           <button
             onClick={handleRunAnalytics}
-            disabled={isRunning}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-all"
+            disabled={isRunning || isLoading}
+            className="group relative flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground font-semibold shadow-sm hover:shadow disabled:opacity-50 transition-all overflow-hidden"
           >
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
             {isRunning ? (
-              <Loader2 size={12} className="animate-spin" />
+              <Loader2 size={16} className="animate-spin relative z-10" />
             ) : (
-              <Play size={12} />
+              <Sparkles size={16} className="relative z-10" />
             )}
-            {isRunning ? "Running..." : "Run Analytics"}
+            <span className="relative z-10">{isRunning ? "Computing..." : "Run Analytics"}</span>
           </button>
         </div>
+      </div>
 
+      <div className="flex-1 p-4 md:px-8 md:py-6 flex flex-col gap-4 min-h-0 max-w-[1920px] mx-auto w-full">
         {runMessage && (
-          <div className="px-3 py-2 rounded-lg bg-secondary/50 border border-border/50 text-xs text-muted-foreground">
+          <div className="mt-6 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-500 font-medium flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+            <CheckCircle2 size={16} className="shrink-0" />
             {runMessage}
           </div>
         )}
 
+        {/* Highlight Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="bg-card/50 border-border/50 backdrop-blur-sm shadow-sm hover:bg-card/80 transition-all duration-300 group">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Detected Communities</CardTitle>
+              <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
+                <Users size={16} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-bold tracking-tight">{totalCommunities}</div>
+              <p className="text-xs text-muted-foreground mt-2">Clusters found in graph</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/50 border-border/50 backdrop-blur-sm shadow-sm hover:bg-card/80 transition-all duration-300 group">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Highest Centrality</CardTitle>
+              <div className="p-2 bg-purple-500/10 rounded-lg text-purple-500">
+                <Network size={16} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold truncate h-10 flex items-center">
+                {centralityMembers[0]?.name || "—"}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Top PageRank entity</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/50 border-border/50 backdrop-blur-sm shadow-sm hover:bg-card/80 transition-all duration-300 group">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Total Trends</CardTitle>
+              <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
+                <TrendingUp size={16} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-4xl font-bold tracking-tight">{methodTrends.length + taskTrends.length}</div>
+              <p className="text-xs text-muted-foreground mt-2">Active monitored nodes</p>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Loading state */}
         {isLoading && communities.length === 0 && (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
+          <div className="flex-1 flex items-center justify-center min-h-[200px]">
+            <Loader2 size={32} className="animate-spin text-primary/50" />
           </div>
         )}
 
-        {/* Tabs */}
-        <Tabs defaultValue="communities" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="w-fit">
-            <TabsTrigger value="communities" className="text-xs">
-              Communities
-            </TabsTrigger>
-            <TabsTrigger value="trends" className="text-xs">
-              Trends
-            </TabsTrigger>
-            <TabsTrigger value="centrality" className="text-xs">
-              Centrality
-            </TabsTrigger>
-          </TabsList>
+        {/* Main Content Area */}
+        {!isLoading && communities.length > 0 && (
+          <div className="flex-1 flex flex-col min-h-0 bg-card/40 border border-border/50 rounded-2xl overflow-hidden backdrop-blur-sm shadow-sm shadow-black/5">
+            <Tabs defaultValue="communities" className="flex-1 flex flex-col min-h-0">
+              <div className="border-b border-border/50 bg-card/60 px-4 py-3">
+                <TabsList className="bg-background/80 border border-border/50 h-10 p-1">
+                  <TabsTrigger value="communities" className="text-xs px-6 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm rounded-md transition-all">
+                    Communities
+                  </TabsTrigger>
+                  <TabsTrigger value="trends" className="text-xs px-6 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm rounded-md transition-all">
+                    Trends Display
+                  </TabsTrigger>
+                  <TabsTrigger value="centrality" className="text-xs px-6 py-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm rounded-md transition-all">
+                    Node Centrality
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-          <TabsContent value="communities" className="flex-1 overflow-auto mt-2">
-            <CommunityList
-              communities={communities}
-              totalCommunities={totalCommunities}
-            />
-          </TabsContent>
+              <div className="flex-1 overflow-auto p-4 md:p-6 custom-scrollbar">
+                <TabsContent value="communities" className="m-0 h-full">
+                  <CommunityList
+                    communities={communities}
+                    totalCommunities={totalCommunities}
+                  />
+                </TabsContent>
 
-          <TabsContent value="trends" className="flex-1 overflow-auto mt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <TrendingChart
-                title="Top Methods"
-                items={methodTrends}
-                color="#22c55e"
-              />
-              <TrendingChart
-                title="Top Tasks"
-                items={taskTrends}
-                color="#a855f7"
-              />
-            </div>
-          </TabsContent>
+                <TabsContent value="trends" className="m-0 h-full">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="p-6 rounded-2xl border border-border/50 bg-background/50">
+                      <TrendingChart
+                        title="Emerging Methods"
+                        items={methodTrends}
+                        color="hsl(var(--primary))"
+                      />
+                    </div>
+                    <div className="p-6 rounded-2xl border border-border/50 bg-background/50">
+                      <TrendingChart
+                        title="Trending Tasks"
+                        items={taskTrends}
+                        color="#a855f7"
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
 
-          <TabsContent value="centrality" className="flex-1 overflow-auto mt-2">
-            <CentralityTable members={centralityMembers} />
-          </TabsContent>
-        </Tabs>
+                <TabsContent value="centrality" className="m-0 h-full">
+                  <CentralityTable members={centralityMembers} />
+                </TabsContent>
+              </div>
+            </Tabs>
+          </div>
+        )}
       </div>
     </div>
   );

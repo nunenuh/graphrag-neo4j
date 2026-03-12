@@ -89,7 +89,8 @@ def build_entity_year_counts(
                     continue
 
                 # Use dataset evaluation date if available, else "unknown"
-                year = str(row.get("year", "unknown"))
+                date_str = str(row.get("paper_date", "unknown"))
+                year = date_str[:4] if date_str != "unknown" else "unknown"
 
                 if entity_type == "method":
                     counts[method_name][year] += 1

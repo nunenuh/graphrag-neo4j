@@ -12,6 +12,7 @@ import type {
   GraphEdge,
   ExploreResponse,
 } from "@/types/api";
+import { Compass } from "lucide-react";
 
 const EMPTY_SEED = new Set<string>();
 
@@ -151,58 +152,78 @@ export default function ExplorePage() {
     : [];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Main two-panel layout */}
-      <div className="flex-1 p-3 grid grid-cols-[320px_1fr] gap-3 min-h-0 h-[calc(100vh-4rem)]">
-        {/* Left panel: Search + Results */}
-        <div className="flex flex-col gap-2 min-h-0 overflow-hidden rounded-xl border border-border/50 bg-card">
-          <div className="p-3 pb-0">
-            <SearchBar onSearch={handleSearch} />
-          </div>
-          {isSearching && (
-            <p className="text-xs text-muted-foreground text-center py-4">
-              Searching...
-            </p>
-          )}
-          <div className="flex-1 px-3 pb-3 min-h-0 overflow-auto">
-            <SearchResults
-              results={searchResults}
-              selectedUid={selectedUid}
-              onSelect={handleResultSelect}
-            />
+    <div className="flex-1 flex flex-col min-h-0 bg-background/50">
+      {/* White curtain drop header */}
+      <div className="bg-background/20 backdrop-blur-md border-b border-border/50 shadow-sm z-10 shrink-0">
+        <div className="max-w-[1920px] mx-auto w-full px-4 md:px-8 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <Compass size={20} />
+            </div>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl font-bold tracking-tight text-foreground mt-0.5">Graph Explorer</h1>
+              <span className="text-muted-foreground text-sm hidden sm:inline-block border-l border-border/50 pl-3">
+                Visualize and traverse nodes and relationships.
+              </span>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Right panel: Controls + Graph + Detail */}
-        <div className="flex flex-col min-h-0 overflow-hidden rounded-xl border border-border/50 bg-[hsl(var(--graph-bg))]">
-          <ExploreControls
-            limit={limit}
-            onLimitChange={setLimit}
-            onRefresh={loadGraph}
-            isLoading={isLoadingGraph}
-          />
-          <div className="relative flex-1">
-            <div className="absolute inset-0">
-              <GraphViewer
-                nodes={nodes}
-                edges={edges}
-                seedNodeIds={EMPTY_SEED}
-                onNodeSelect={handleNodeSelect}
+      <div className="flex-1 p-4 md:px-8 md:py-6 flex flex-col gap-4 min-h-0 max-w-[1920px] mx-auto w-full">
+        {/* Main two-panel layout */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 min-h-0">
+          {/* Left panel: Search + Results */}
+          <div className="flex flex-col gap-4 min-h-0 overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm shadow-sm">
+            <div className="p-4 pb-0">
+              <SearchBar onSearch={handleSearch} />
+            </div>
+            {isSearching && (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                Searching...
+              </p>
+            )}
+            <div className="flex-1 px-4 pb-4 min-h-0 overflow-auto custom-scrollbar">
+              <SearchResults
+                results={searchResults}
+                selectedUid={selectedUid}
+                onSelect={handleResultSelect}
               />
             </div>
-            {selectedGraphNode && (
-              <NodeDetailPanel
-                node={selectedGraphNode}
-                edges={detailEdges}
-                allNodes={nodes}
-                isSeed={false}
-                onClose={() => {
-                  setSelectedNodeId(null);
-                  setNodeDetail(null);
-                }}
-                onNodeSelect={handleDetailNodeSelect}
-              />
-            )}
+          </div>
+
+          {/* Right panel: Controls + Graph + Detail */}
+          <div className="flex flex-col min-h-0 overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm shadow-sm relative">
+            <ExploreControls
+              limit={limit}
+              onLimitChange={setLimit}
+              onRefresh={loadGraph}
+              isLoading={isLoadingGraph}
+            />
+            <div className="relative flex-1">
+              <div className="absolute inset-0">
+                <GraphViewer
+                  nodes={nodes}
+                  edges={edges}
+                  seedNodeIds={EMPTY_SEED}
+                  onNodeSelect={handleNodeSelect}
+                  emptyMessage="Graph is empty. Nodes will load automatically."
+                />
+              </div>
+              {selectedGraphNode && (
+                <NodeDetailPanel
+                  node={selectedGraphNode}
+                  edges={detailEdges}
+                  allNodes={nodes}
+                  isSeed={false}
+                  onClose={() => {
+                    setSelectedNodeId(null);
+                    setNodeDetail(null);
+                  }}
+                  onNodeSelect={handleDetailNodeSelect}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>

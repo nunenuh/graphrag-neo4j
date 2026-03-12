@@ -56,7 +56,7 @@ export function CommunityList({ communities, totalCommunities }: CommunityListPr
                         className="flex items-center justify-between text-xs px-2 py-1 rounded bg-secondary/30"
                       >
                         <span className="text-foreground/80 truncate">{m.name}</span>
-                        {m.pagerank !== undefined && (
+                        {typeof m.pagerank === "number" && (
                           <span className="text-muted-foreground tabular-nums shrink-0 ml-2">
                             PR: {m.pagerank.toFixed(4)}
                           </span>

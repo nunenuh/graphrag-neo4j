@@ -19,18 +19,19 @@ export function MetricCards({ metrics }: MetricCardsProps) {
   if (keys.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {keys.map((key) => {
         const config = METRIC_CONFIG[key] ?? { label: key, format: (v: number) => v.toFixed(3), color: "text-foreground" };
         return (
           <div
             key={key}
-            className="rounded-lg border border-border/50 bg-card p-3 text-center"
+            className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-sm shadow-sm hover:bg-card/80 transition-all duration-300 p-4 text-center group relative overflow-hidden"
           >
-            <div className={`text-xl font-bold tabular-nums ${config.color}`}>
+            <div className={`absolute -inset-1 opacity-0 group-hover:opacity-10 transition-opacity blur-xl ${config.color.replace('text-', 'bg-')}`}></div>
+            <div className={`relative z-10 text-2xl font-bold tabular-nums tracking-tight ${config.color}`}>
               {config.format(metrics[key])}
             </div>
-            <div className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">
+            <div className="relative z-10 text-xs font-medium text-muted-foreground mt-2 uppercase tracking-wider group-hover:text-foreground transition-colors">
               {config.label}
             </div>
           </div>

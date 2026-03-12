@@ -22,22 +22,23 @@ interface StatsCardsProps {
 
 export function StatsCards({ stats }: StatsCardsProps) {
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-4 gap-3">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {STAT_ITEMS.map(({ key, label, icon: Icon, color }) => (
-          <Card key={key} className="border-border/50">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
+          <Card key={key} className="bg-card/50 border-border/50 backdrop-blur-sm shadow-sm hover:bg-card/80 transition-all duration-300 group overflow-hidden relative">
+            <div className={`absolute top-0 right-0 w-24 h-24 ${COLOR_MAP[color].replace('border-', '')} opacity-10 rounded-bl-full blur-2xl transform translate-x-1/2 -translate-y-1/2 transition-transform group-hover:scale-150`}></div>
+            <CardContent className="p-5 relative z-10">
+              <div className="flex items-center gap-4">
                 <div
-                  className={`flex items-center justify-center w-9 h-9 rounded-lg border ${COLOR_MAP[color]}`}
+                  className={`flex items-center justify-center w-12 h-12 rounded-xl border ${COLOR_MAP[color]}`}
                 >
-                  <Icon size={16} />
+                  <Icon size={20} />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold text-foreground tabular-nums">
+                  <p className="text-3xl font-bold tracking-tight text-foreground tabular-nums">
                     {stats ? (stats.node_counts[key] ?? 0).toLocaleString() : "---"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">{label}</p>
                 </div>
               </div>
             </CardContent>

@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useCallback, useEffect } from "react";
+import { ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { InteractiveNvlWrapper } from "@neo4j-nvl/react";
 import type NVL from "@neo4j-nvl/base";
 import type { Node, Relationship, HitTargets } from "@neo4j-nvl/base";
@@ -10,6 +11,7 @@ interface GraphViewerProps {
   edges: GraphEdge[];
   seedNodeIds: Set<string>;
   onNodeSelect?: (nodeId: string | null) => void;
+  emptyMessage?: string;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -22,7 +24,7 @@ const NODE_COLORS: Record<string, string> = {
 const DEFAULT_COLOR = "#64748b";
 const REL_COLOR = "rgba(148, 163, 184, 0.5)";
 
-export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphViewerProps) {
+export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect, emptyMessage }: GraphViewerProps) {
   const nvlRef = useRef<NVL>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -106,8 +108,10 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
       style={{ width: "100%", height: "100%", position: "relative" }}
     >
       {!hasNodes && (
-        <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-          <span className="text-sm">Ask a question to see the knowledge graph</span>
+        <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-4 text-center">
+          <span className="text-sm bg-card/50 backdrop-blur-sm border border-border/50 py-2 px-4 rounded-xl shadow-sm">
+            {emptyMessage || "Ask a question to see the knowledge graph"}
+          </span>
         </div>
       )}
 
@@ -133,6 +137,32 @@ export function GraphViewer({ nodes, edges, seedNodeIds, onNodeSelect }: GraphVi
             onLayoutDone: handleLayoutDone,
           }}
         />
+      )}
+
+      {canRender && (
+        <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 p-1 rounded-lg border border-border/50 bg-card/90 backdrop-blur-sm shadow-sm">
+          <button
+            onClick={() => { const z = nvlRef.current?.getScale(); if (z) nvlRef.current?.setZoom(z * 1.5); }}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Zoom In"
+          >
+            <ZoomIn size={16} />
+          </button>
+          <button
+            onClick={() => { const z = nvlRef.current?.getScale(); if (z) nvlRef.current?.setZoom(z / 1.5); }}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Zoom Out"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <button
+            onClick={handleLayoutDone}
+            className="p-1.5 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            title="Fit to screen"
+          >
+            <Maximize size={16} />
+          </button>
+        </div>
       )}
 
       {hasNodes && (

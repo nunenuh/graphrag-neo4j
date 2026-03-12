@@ -44,7 +44,11 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
       <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className="text-xs text-foreground/90 leading-relaxed">{value}</dd>
+      <dd className="text-xs text-foreground/90 leading-relaxed">
+        <div className="max-h-48 overflow-y-auto custom-scrollbar pr-2 whitespace-pre-wrap break-words">
+          {value}
+        </div>
+      </dd>
     </div>
   );
 }

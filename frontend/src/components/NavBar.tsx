@@ -20,7 +20,7 @@ const NAV_ITEMS = [
 
 export function NavBar() {
   return (
-    <header className="relative z-10 border-b border-border/50 backdrop-blur-sm bg-background/80">
+    <header className="relative z-10 border-b border-border/50 backdrop-blur-md bg-background/40">
       <div className="px-6 py-3 flex items-center gap-6">
         {/* Logo */}
         <div className="flex items-center gap-3 shrink-0">
@@ -45,10 +45,9 @@ export function NavBar() {
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  isActive
-                    ? "text-foreground bg-accent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isActive
+                  ? "text-foreground bg-accent"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 }`
               }
             >

@@ -32,7 +32,7 @@ def _error_detail(error_code: str, exc: Exception) -> dict:
 
 
 @router.post("/run", response_model=AnalyticsRunResponse)
-async def run_analytics(client: Neo4jClient = Depends(get_neo4j_client)):
+def run_analytics(client: Neo4jClient = Depends(get_neo4j_client)):
     """Run the full analytics pipeline (community detection, centrality, trends)."""
     logger.info("analytics.run.request")
     usecase = AnalyticsUseCase(client)
@@ -51,7 +51,7 @@ async def run_analytics(client: Neo4jClient = Depends(get_neo4j_client)):
 
 
 @router.get("/communities", response_model=CommunitiesResponse)
-async def get_communities(
+def get_communities(
     limit: int = Query(50, ge=1, le=200),
     client: Neo4jClient = Depends(get_neo4j_client),
 ):
@@ -76,7 +76,7 @@ async def get_communities(
 
 
 @router.get("/trends", response_model=TrendsResponse)
-async def get_trends(
+def get_trends(
     type: str = Query("Method", description="Entity type: Method or Task"),
     limit: int = Query(10, ge=1, le=100),
     client: Neo4jClient = Depends(get_neo4j_client),
