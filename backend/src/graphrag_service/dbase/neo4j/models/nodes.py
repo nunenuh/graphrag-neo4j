@@ -10,7 +10,7 @@ Each model inherits from BaseNode (uid + created_at) and declares:
 from neomodel import ArrayProperty, FloatProperty, IntegerProperty, RelationshipFrom, RelationshipTo, StringProperty
 
 from .base import BaseNode
-from .relationships import AuthoredRel, EvaluatedOnRel, UsedForRel
+from .relationships import AuthoredRel, CoAuthoredWithRel, EvaluatedOnRel, UsedForRel
 
 
 class Author(BaseNode):
@@ -38,6 +38,9 @@ class Author(BaseNode):
 
     # Author -[:AUTHORED]-> Paper
     papers = RelationshipTo("Paper", "AUTHORED", model=AuthoredRel)
+
+    # Author -[:CO_AUTHORED_WITH]-> Author
+    co_authors = RelationshipTo("Author", "CO_AUTHORED_WITH", model=CoAuthoredWithRel)
 
 
 class Paper(BaseNode):

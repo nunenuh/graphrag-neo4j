@@ -28,3 +28,9 @@ class AuthoredRel(StructuredRel):
     """
 
     order = IntegerProperty()
+
+
+class CoAuthoredWithRel(StructuredRel):
+    """Author -[:CO_AUTHORED_WITH]-> Author. Derived from shared papers."""
+
+    paper_count = IntegerProperty(default=0)
