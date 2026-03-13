@@ -83,6 +83,7 @@ export interface TraversalStep {
   hop: number;
   node_count: number;
   node_labels: string[];
+  label_counts: Record<string, number>;
   edge_types: string[];
   description: string;
 }

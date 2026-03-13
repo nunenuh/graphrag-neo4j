@@ -35,6 +35,7 @@ class TraversalStep(BaseModel):
     hop: int = Field(..., description="Hop number (0=seed, 1=first hop, 2=second hop)")
     node_count: int = Field(..., description="Number of nodes discovered at this hop")
     node_labels: list[str] = Field(default_factory=list, description="Node labels at this hop")
+    label_counts: dict[str, int] = Field(default_factory=dict, description="Count per node label")
     edge_types: list[str] = Field(default_factory=list, description="Relationship types traversed")
     description: str = Field(..., description="Human-readable description of this hop")
 

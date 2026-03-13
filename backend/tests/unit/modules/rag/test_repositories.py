@@ -68,7 +68,10 @@ class TestTraversalRepository:
         nodes, edges, path = repo.traverse(["p1"])
         assert nodes == {}
         assert edges == []
-        assert path == [{"hop": 0, "node_count": 0, "node_labels": [], "edge_types": [], "description": "Vector search found 0 seed nodes"}]
+        assert path[0]["hop"] == 0
+        assert path[0]["node_count"] == 0
+        assert path[0]["label_counts"] == {}
+        assert "matching your query" in path[0]["description"]
 
     def test_traverse_raises_repository_exception(self, mock_neo4j_client):
         mock_neo4j_client.run_query.side_effect = Exception("traverse fail")
@@ -97,8 +100,11 @@ class TestTraversalRepository:
         assert len(edges) == 1
         assert edges[0]["type"] == "USED_FOR"
         assert path[0]["hop"] == 0
+        assert path[0]["label_counts"] == {"Paper": 1}
         assert path[1]["hop"] == 1
+        assert path[1]["label_counts"] == {"Task": 1}
         assert "USED_FOR" in path[1]["edge_types"]
+        assert "task application" in path[1]["description"]
 
     def test_traverse_filters_none_nodes(self, mock_neo4j_client):
         seed = FakeNode({"uid": "p1"})
