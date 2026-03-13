@@ -24,8 +24,8 @@ export function ExploreControls({
         value={[limit]}
         onValueChange={([v]) => onLimitChange(v)}
         min={10}
-        max={200}
-        step={10}
+        max={1000}
+        step={50}
         className="w-32"
       />
       <Button

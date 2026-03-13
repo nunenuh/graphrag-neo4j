@@ -54,7 +54,7 @@ async def get_schema(client: Neo4jClient = Depends(get_neo4j_client)):
 
 @router.get("/explore", response_model=GraphExploreResponse)
 async def explore(
-    limit: int = Query(50, ge=1, le=200, description="Max relationships to return"),
+    limit: int = Query(50, ge=1, le=1000, description="Max relationships to return"),
     client: Neo4jClient = Depends(get_neo4j_client),
 ):
     """Explore a sample of the knowledge graph."""

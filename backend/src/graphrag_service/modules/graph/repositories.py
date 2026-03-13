@@ -15,7 +15,32 @@ from graphrag_service.dbase.neo4j.models import ALL_MODELS, ALL_NODE_MODELS
 from graphrag_service.shared.exceptions import RepositoryException
 
 
-EXPLORE_QUERY = "MATCH (a)-[r]->(b) RETURN a, type(r) AS rel, b LIMIT $limit"
+EXPLORE_QUERY = """
+CALL {
+    MATCH (a:Author)-[r:AUTHORED]->(b:Paper)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.3)
+  UNION ALL
+    MATCH (a:Paper)-[r:USES_METHOD]->(b:Method)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.2)
+  UNION ALL
+    MATCH (a:Method)-[r:EVALUATED_ON]->(b:Dataset)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.2)
+  UNION ALL
+    MATCH (a:Dataset)-[r:USED_FOR]->(b:Task)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.2)
+  UNION ALL
+    MATCH (a)-[r]->(b)
+    WHERE NOT type(r) IN ['AUTHORED', 'USES_METHOD', 'EVALUATED_ON', 'USED_FOR']
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.1)
+}
+RETURN a, rel, b
+LIMIT $limit
+""".strip()
 
 # Allowlist for label names — prevents Cypher injection via f-string interpolation
 VALID_LABELS: frozenset[str] = frozenset(m.__label__ for m in ALL_MODELS)
