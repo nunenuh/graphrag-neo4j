@@ -19,7 +19,7 @@ RESET := \033[0m
 
 .PHONY: help setup env install install-backend install-frontend \
        neo4j neo4j-stop neo4j-logs neo4j-browser \
-       schema download ingest ingest-all \
+       schema download ingest ingest-authors ingest-all \
        backend frontend dev dev-stop \
        docker-up docker-down docker-build docker-logs \
        test test-unit test-integration test-e2e test-coverage \
@@ -149,6 +149,9 @@ ingest: check-env check-neo4j ## Ingest entities + relationships into Neo4j (~30
 	@echo "$(BLUE)Starting ingestion...$(RESET)"
 	cd backend && $(POETRY) run cli graph ingest
 	@echo "$(GREEN)Ingestion complete!$(RESET)"
+
+ingest-authors: check-env check-neo4j ## Ingest authors with entity resolution
+	cd backend && $(POETRY) run cli graph ingest-authors
 
 ingest-all: neo4j schema download ingest ## Full pipeline: neo4j -> schema -> download -> ingest
 

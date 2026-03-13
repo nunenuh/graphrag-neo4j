@@ -96,6 +96,9 @@ def get_graph_app() -> typer.Typer:
                 print_info("Ingesting relationships...")
                 usecase.ingest_relationships()
 
+            print_info("Ingesting authors with entity resolution...")
+            usecase.ingest_authors()
+
             print_success("Ingestion complete")
         except ValueError as e:
             print_error(str(e))
@@ -117,6 +120,26 @@ def get_graph_app() -> typer.Typer:
             print_success("Relationship ingestion complete")
         except Exception as e:
             print_error(f"Relationship ingestion failed: {e}")
+            raise typer.Exit(code=1)
+        finally:
+            close_neo4j_client()
+
+    @app.command(name="ingest-authors")
+    def ingest_authors(
+        batch_size: int = typer.Option(500, help="Batch size for Neo4j operations"),
+    ) -> None:
+        """Run author extraction + entity resolution + relationship creation."""
+        print_info("Ingesting authors with entity resolution...")
+        try:
+            client = get_neo4j_client()
+            usecase = GraphUseCase(client)
+            result = usecase.ingest_authors(batch_size=batch_size)
+            print_success(
+                f"Authors: {result['raw_authors']} raw -> {result['canonical_authors']} canonical\n"
+                f"Edges: {result['authored_edges']} AUTHORED, {result['coauthor_edges']} CO_AUTHORED_WITH"
+            )
+        except Exception as e:
+            print_error(f"Author ingestion failed: {e}")
             raise typer.Exit(code=1)
         finally:
             close_neo4j_client()
