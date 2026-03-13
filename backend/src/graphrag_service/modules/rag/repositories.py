@@ -84,10 +84,10 @@ class TraversalRepository:
     def __init__(self, client: Neo4jClient):
         self._client = client
 
-    def traverse(self, node_ids: list[str]) -> tuple[dict[str, dict], list[dict]]:
+    def traverse(self, node_ids: list[str]) -> tuple[dict[str, dict], list[dict], list[dict]]:
         """Perform 2-hop traversal from seed node IDs.
 
-        Returns (nodes_by_id, edges_list).
+        Returns (nodes_by_id, edges_list, traversal_path).
         """
         try:
             rows = self._client.run_query(TRAVERSE_QUERY, {"ids": node_ids})
@@ -99,17 +99,30 @@ class TraversalRepository:
         all_nodes: dict[str, dict] = {}
         all_edges: list[dict] = []
 
+        hop0_ids: set[str] = set()
+        hop1_ids: set[str] = set()
+        hop2_ids: set[str] = set()
+        hop0_labels: set[str] = set()
+        hop1_labels: set[str] = set()
+        hop2_labels: set[str] = set()
+        hop1_edge_types: set[str] = set()
+        hop2_edge_types: set[str] = set()
+
         for r in rows:
-            # Seed node (returned directly with its label)
+            # Seed node (hop 0)
             seed = r["seed"]
             if seed is not None:
                 d = {k: v for k, v in dict(seed).items() if k != "embedding"}
                 d["label"] = r.get("seed_label", "")
                 d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
-                all_nodes[d.get("uid", "")] = d
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                hop0_ids.add(uid)
+                if d["label"]:
+                    hop0_labels.add(d["label"])
 
-            # Hop-1 and hop-2 nodes (wrapped as {node, label})
-            for wrapped in (r["nodes1"] or []) + (r["nodes2"] or []):
+            # Hop-1 nodes
+            for wrapped in r["nodes1"] or []:
                 if wrapped is None:
                     continue
                 node = wrapped.get("node") if isinstance(wrapped, dict) else wrapped
@@ -119,17 +132,72 @@ class TraversalRepository:
                 if isinstance(wrapped, dict) and wrapped.get("label"):
                     d["label"] = wrapped["label"]
                 d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
-                all_nodes[d.get("uid", "")] = d
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                if uid not in hop0_ids:
+                    hop1_ids.add(uid)
+                    if d.get("label"):
+                        hop1_labels.add(d["label"])
 
-            for e in (r["e1"] or []) + (r["e2"] or []):
+            # Hop-2 nodes
+            for wrapped in r["nodes2"] or []:
+                if wrapped is None:
+                    continue
+                node = wrapped.get("node") if isinstance(wrapped, dict) else wrapped
+                if node is None:
+                    continue
+                d = {k: v for k, v in dict(node).items() if k != "embedding"}
+                if isinstance(wrapped, dict) and wrapped.get("label"):
+                    d["label"] = wrapped["label"]
+                d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                if uid not in hop0_ids and uid not in hop1_ids:
+                    hop2_ids.add(uid)
+                    if d.get("label"):
+                        hop2_labels.add(d["label"])
+
+            # Hop-1 edges
+            for e in r["e1"] or []:
                 if e.get("from") and e.get("to") and e.get("type"):
-                    all_edges.append(
-                        {
-                            "from_id": e["from"],
-                            "to_id": e["to"],
-                            "type": e["type"],
-                            "properties": dict(e.get("props") or {}),
-                        }
-                    )
+                    all_edges.append({
+                        "from_id": e["from"], "to_id": e["to"],
+                        "type": e["type"], "properties": dict(e.get("props") or {}),
+                    })
+                    hop1_edge_types.add(e["type"])
 
-        return all_nodes, all_edges
+            # Hop-2 edges
+            for e in r["e2"] or []:
+                if e.get("from") and e.get("to") and e.get("type"):
+                    all_edges.append({
+                        "from_id": e["from"], "to_id": e["to"],
+                        "type": e["type"], "properties": dict(e.get("props") or {}),
+                    })
+                    hop2_edge_types.add(e["type"])
+
+        # Build traversal path summary
+        traversal_path: list[dict] = [{
+            "hop": 0,
+            "node_count": len(hop0_ids),
+            "node_labels": sorted(hop0_labels),
+            "edge_types": [],
+            "description": f"Vector search found {len(hop0_ids)} seed {', '.join(sorted(hop0_labels)) or 'nodes'}",
+        }]
+        if hop1_ids:
+            traversal_path.append({
+                "hop": 1,
+                "node_count": len(hop1_ids),
+                "node_labels": sorted(hop1_labels),
+                "edge_types": sorted(hop1_edge_types),
+                "description": f"Hop 1: traversed {', '.join(sorted(hop1_edge_types))} to {len(hop1_ids)} nodes",
+            })
+        if hop2_ids:
+            traversal_path.append({
+                "hop": 2,
+                "node_count": len(hop2_ids),
+                "node_labels": sorted(hop2_labels),
+                "edge_types": sorted(hop2_edge_types),
+                "description": f"Hop 2: traversed {', '.join(sorted(hop2_edge_types))} to {len(hop2_ids)} nodes",
+            })
+
+        return all_nodes, all_edges, traversal_path

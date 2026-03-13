@@ -4,11 +4,12 @@ import remarkGfm from 'remark-gfm';
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Sparkles, Brain, GitBranch, FileText, Zap, ChevronDown, ChevronRight } from "lucide-react";
-import type { SeedNode, PipelineMetadata } from "@/types/api";
+import type { SeedNode, PipelineMetadata, TraversalStep } from "@/types/api";
 import { QueryTypeBadge } from "@/components/QueryTypeBadge";
 import { RetrievalStrategyBadge } from "@/components/RetrievalStrategyBadge";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { UnsupportedClaimsPanel } from "@/components/UnsupportedClaimsPanel";
+import { TraversalPath } from "@/components/TraversalPath";
 
 const BADGE_COLORS: Record<string, string> = {
   Paper: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
@@ -21,6 +22,7 @@ interface ChatPanelProps {
   onSubmit: (question: string) => void;
   answer: string;
   seedNodes: SeedNode[];
+  traversalPath?: TraversalStep[];
   isLoading: boolean;
   latencyMs?: number;
   metadata: PipelineMetadata | null;
@@ -31,6 +33,7 @@ export function ChatPanel({
   onSubmit,
   answer,
   seedNodes,
+  traversalPath = [],
   isLoading,
   latencyMs,
   metadata,
@@ -106,6 +109,11 @@ export function ChatPanel({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Traversal path */}
+      {traversalPath.length > 0 && (
+        <TraversalPath steps={traversalPath} />
       )}
 
       {/* Answer */}

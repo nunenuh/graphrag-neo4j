@@ -19,7 +19,7 @@ class TestBuildRagGraph:
         graph = build_rag_graph(
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
+            traverse_fn=lambda ids: ({}, [], []),
             build_context_fn=lambda s, e: "ctx",
             generate_fn=lambda q, c: "answer",
         )
@@ -35,7 +35,7 @@ class TestRunRagPipeline:
             question="What is ResNet?",
             embed_fn=lambda q: [0.1, 0.2],
             search_fn=lambda v, k: search_results,
-            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, []),
+            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, [], []),
             build_context_fn=lambda s, e: "ResNet is a deep network.",
             generate_fn=lambda q, c: f"Based on context: {c}",
         )
@@ -51,7 +51,7 @@ class TestRunRagPipeline:
             question="Unknown topic",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
+            traverse_fn=lambda ids: ({}, [], []),
             build_context_fn=lambda s, e: "",
             generate_fn=lambda q, c: "I don't know.",
         )
@@ -66,7 +66,7 @@ class TestRunRagPipeline:
             question="What is ResNet?",
             embed_fn=lambda q: [0.1, 0.2],
             search_fn=lambda v, k: search_results,
-            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, []),
+            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, [], []),
             build_context_fn=lambda s, e: "ResNet context",
             generate_fn=lambda q, c: "ResNet answer",
             classify_fn=lambda q: {
@@ -89,7 +89,7 @@ class TestRunRagPipeline:
             question="What is YOLO?",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
+            traverse_fn=lambda ids: ({}, [], []),
             build_context_fn=lambda s, e: "context",
             generate_fn=lambda q, c: "YOLO is a detection method.",
             provenance_fn=lambda answer, ctx: {
@@ -106,7 +106,7 @@ class TestRunRagPipeline:
             question="test",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
+            traverse_fn=lambda ids: ({}, [], []),
             build_context_fn=lambda s, e: "",
             generate_fn=lambda q, c: "answer",
             enable_provenance=False,
@@ -124,6 +124,7 @@ class TestRunRagPipeline:
             traverse_fn=lambda ids: (
                 {"v1": {"uid": "v1", "name": "VecResult"}},
                 [{"from_id": "v1", "to_id": "v2", "type": "REL"}],
+                [],
             ),
             build_context_fn=lambda s, e: "merged context",
             generate_fn=lambda q, c: "comparison answer",
@@ -147,7 +148,7 @@ class TestRunRagPipeline:
             question="test",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
+            traverse_fn=lambda ids: ({}, [], []),
             build_context_fn=lambda s, e: "",
             generate_fn=lambda q, c: "answer",
         )

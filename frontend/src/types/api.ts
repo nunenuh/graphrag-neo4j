@@ -77,6 +77,16 @@ export interface PipelineMetadata {
   unsupported_claims: string[];
 }
 
+// Traversal path (hop-by-hop explanation)
+
+export interface TraversalStep {
+  hop: number;
+  node_count: number;
+  node_labels: string[];
+  edge_types: string[];
+  description: string;
+}
+
 // Main response
 
 export interface QueryResponse {
@@ -85,6 +95,7 @@ export interface QueryResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
   cypher_used: string;
+  traversal_path: TraversalStep[];
   latency_ms: number;
   metadata: PipelineMetadata | null;
 }

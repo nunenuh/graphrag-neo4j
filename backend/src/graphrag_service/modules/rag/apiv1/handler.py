@@ -13,7 +13,7 @@ from loguru import logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import ServiceException
 
-from ..schemas import EdgeOut, PipelineMetadata, QueryRequest, QueryResponse, SeedNodeOut
+from ..schemas import EdgeOut, PipelineMetadata, QueryRequest, QueryResponse, SeedNodeOut, TraversalStep
 from ..usecase import RAGUseCase
 
 router = APIRouter()
@@ -73,12 +73,18 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
             step_timings=result.get("step_timings", {}),
         )
 
+        traversal_path_out = [
+            TraversalStep(**step)
+            for step in subgraph.get("traversal_path", [])
+        ]
+
         response = QueryResponse(
             answer=result["answer"],
             seed_nodes=seed_nodes_out,
             nodes=nodes_out,
             edges=edges_out,
             cypher_used=subgraph.get("cypher_used", ""),
+            traversal_path=traversal_path_out,
             latency_ms=latency_ms,
             metadata=metadata,
         )
