@@ -6,11 +6,20 @@ from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import RepositoryException
 
 
+BATCH_SIZE = 5000
+
+
 class AnalyticsRepository:
     """Encapsulates Neo4j operations for analytics data."""
 
     def __init__(self, client: Neo4jClient):
         self._client = client
+
+    def _batch_write(self, cypher: str, rows: list[dict]) -> None:
+        """Execute a Cypher UNWIND in batches to avoid Neo4j memory limits."""
+        for i in range(0, len(rows), BATCH_SIZE):
+            batch = rows[i:i + BATCH_SIZE]
+            self._client.run_query(cypher, {"rows": batch})
 
     def get_authored_edges(self) -> list[dict]:
         """Get all AUTHORED relationships for co-authorship graph building."""
@@ -33,7 +42,8 @@ class AnalyticsRepository:
             f"SET n.community_id = row.cid"
         )
         try:
-            self._client.run_query(cypher, {"rows": rows})
+            self._batch_write(cypher, rows)
+            logger.info(f"Updated community_id on {len(rows):,} {label} nodes")
         except Exception as e:
             raise RepositoryException(f"Failed to update community_ids: {e}") from e
 
@@ -49,7 +59,8 @@ class AnalyticsRepository:
             "SET a.pagerank = row.pr, a.betweenness = row.bt"
         )
         try:
-            self._client.run_query(cypher, {"rows": rows})
+            self._batch_write(cypher, rows)
+            logger.info(f"Updated centrality on {len(rows):,} Author nodes")
         except Exception as e:
             raise RepositoryException(f"Failed to update centrality: {e}") from e
 
@@ -62,7 +73,8 @@ class AnalyticsRepository:
             "SET a.h_index = row.h"
         )
         try:
-            self._client.run_query(cypher, {"rows": rows})
+            self._batch_write(cypher, rows)
+            logger.info(f"Updated h_index on {len(rows):,} Author nodes")
         except Exception as e:
             raise RepositoryException(f"Failed to update h_index: {e}") from e
 

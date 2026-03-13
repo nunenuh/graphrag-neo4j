@@ -10,11 +10,16 @@ import networkx as nx
 
 def compute_centrality(
     graph: nx.Graph,
+    betweenness_sample: int = 500,
 ) -> dict[str, dict[str, float]]:
-    """Compute PageRank and betweenness centrality for all nodes.
+    """Compute PageRank and approximate betweenness centrality.
+
+    Uses sampled betweenness (k=500 random pivots) instead of exact
+    computation, which is O(V*E) and infeasible for large graphs.
 
     Args:
         graph: Undirected NetworkX co-authorship graph.
+        betweenness_sample: Number of random pivot nodes for approximation.
 
     Returns:
         Dict mapping node_id → {'pagerank': float, 'betweenness': float}.
@@ -22,8 +27,19 @@ def compute_centrality(
     if graph.number_of_nodes() == 0:
         return {}
 
+    from loguru import logger
+
+    logger.info(f"Computing PageRank on {graph.number_of_nodes():,} nodes...")
     pagerank = nx.pagerank(graph, weight="weight")
-    betweenness = nx.betweenness_centrality(graph, weight="weight")
+
+    n_nodes = graph.number_of_nodes()
+    if n_nodes > 10_000:
+        k = min(betweenness_sample, n_nodes)
+        logger.info(f"Computing approximate betweenness (k={k}) on {n_nodes:,} nodes...")
+        betweenness = nx.betweenness_centrality(graph, weight="weight", k=k)
+    else:
+        logger.info(f"Computing exact betweenness on {n_nodes:,} nodes...")
+        betweenness = nx.betweenness_centrality(graph, weight="weight")
 
     result: dict[str, dict[str, float]] = {}
     for node in graph.nodes():
