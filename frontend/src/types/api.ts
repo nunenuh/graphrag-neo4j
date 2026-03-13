@@ -7,7 +7,7 @@
 
 // Shared types
 
-export type NodeLabel = "Paper" | "Method" | "Task" | "Dataset";
+export type NodeLabel = "Paper" | "Method" | "Task" | "Dataset" | "Author";
 
 // Request
 
