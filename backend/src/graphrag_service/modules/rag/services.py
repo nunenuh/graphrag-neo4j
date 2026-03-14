@@ -24,6 +24,6 @@ class RAGService:
         return generate(question, context)
 
     @staticmethod
-    def build_context(seed_nodes: list, edges: list) -> str:
+    def build_context(seed_nodes: list, edges: list, nodes: list | None = None) -> str:
         """Build context string using library/generator."""
-        return build_context(seed_nodes, edges)
+        return build_context(seed_nodes, edges, nodes)

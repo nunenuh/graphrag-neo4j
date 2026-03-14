@@ -50,7 +50,7 @@ def build_rag_graph(
     embed_fn: Callable[[str], list[float]],
     search_fn: Callable[[list[float], int], list[Any]],
     traverse_fn: Callable[[list[str]], tuple[dict, list, list]],
-    build_context_fn: Callable[[list, list], str],
+    build_context_fn: Callable[..., str],
     generate_fn: Callable[[str, str], str],
     top_k: int = 5,
     classify_fn: Callable[[str], dict] | None = None,
@@ -192,11 +192,13 @@ def build_rag_graph(
 
     def context_step(state: RAGState) -> dict:
         t0 = time.perf_counter()
+        subgraph = state.get("subgraph", {})
         context = _timed(
             "build_context",
             build_context_fn,
             state.get("seed_nodes", []),
-            state.get("subgraph", {}).get("edges", []),
+            subgraph.get("edges", []),
+            subgraph.get("nodes", []),
         )
         ms = round((time.perf_counter() - t0) * 1000, 1)
         logger.bind(context_len=len(context)).info("build_context.results")
@@ -257,7 +259,7 @@ def run_rag_pipeline(
     embed_fn: Callable[[str], list[float]],
     search_fn: Callable[[list[float], int], list[Any]],
     traverse_fn: Callable[[list[str]], tuple[dict, list, list]],
-    build_context_fn: Callable[[list, list], str],
+    build_context_fn: Callable[..., str],
     generate_fn: Callable[[str, str], str],
     top_k: int = 5,
     classify_fn: Callable[[str], dict] | None = None,

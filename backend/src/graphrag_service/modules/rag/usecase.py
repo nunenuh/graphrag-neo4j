@@ -43,8 +43,8 @@ class RAGUseCase:
             summary_pct=settings.SUMMARY_CONTEXT_PCT,
         )
 
-        def _build_context(seed_nodes: list, edges: list) -> str:
-            return allocate_context(seed_nodes, edges, budget)
+        def _build_context(seed_nodes: list, edges: list, nodes: list | None = None) -> str:
+            return allocate_context(seed_nodes, edges, budget, nodes)
 
         def _classify(question: str) -> dict:
             return classify_query(question, get_chat_model)

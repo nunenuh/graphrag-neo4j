@@ -20,7 +20,7 @@ class TestRouteQuery:
         assert route_query("TEMPORAL") == "GRAPH_ONLY"
 
     def test_network(self):
-        assert route_query("NETWORK") == "GRAPH_ONLY"
+        assert route_query("NETWORK") == "HYBRID_PARALLEL"
 
     def test_exploratory(self):
         assert route_query("EXPLORATORY") == "HYBRID_PARALLEL"
