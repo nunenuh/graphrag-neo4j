@@ -247,6 +247,22 @@ class NodeRepository:
         )
         return len(rows)
 
+    def batch_merge_coauthored(self, rows: list[dict]) -> int:
+        """Batch MERGE CO_AUTHORED_WITH relationships between authors.
+        Each row: {"from_uid": str, "to_uid": str, "paper_count": int}
+        """
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (a:Author {uid: row.from_uid}) "
+            "MATCH (b:Author {uid: row.to_uid}) "
+            "MERGE (a)-[r:CO_AUTHORED_WITH]->(b) "
+            "SET r.paper_count = row.paper_count",
+            {"rows": rows},
+        )
+        return len(rows)
+
 
 class GraphExploreRepository:
     """Encapsulates graph exploration queries."""

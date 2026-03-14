@@ -19,6 +19,7 @@ const NODE_COLORS: Record<string, string> = {
   Method: "#22c55e",
   Task: "#a855f7",
   Dataset: "#f97316",
+  Author: "#64748b",
 };
 
 const DEFAULT_COLOR = "#64748b";

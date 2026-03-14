@@ -14,6 +14,10 @@ from loguru import logger
 from graphrag_service.core.config import get_settings
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.dbase.neo4j.models import Author, Dataset, Method, Paper, Task
+from graphrag_service.library.parsers import iter_authors, iter_author_paper_edges, load_json
+from graphrag_service.modules.graph.author_ingestion import (
+    run_entity_resolution, prepare_author_nodes, prepare_coauthor_edges,
+)
 
 from .checkpoint import (
     IngestCheckpoint,
@@ -294,3 +298,47 @@ class GraphUseCase:
         auth_total += self.node_repo.batch_merge_authored(authored_batch)
         logger.info(f"AUTHORED: {auth_total} edges")
         logger.info("Relationships ingestion done")
+
+    def ingest_authors(self, batch_size: int = 500) -> dict:
+        """Run author extraction, entity resolution, and relationship creation."""
+        data_path = GraphService.data_dir()
+        data = load_json(data_path / "papers.json")
+
+        raw_authors = list(iter_authors(data))
+        logger.info("Extracted %d raw authors", len(raw_authors))
+
+        canonical_authors, uid_mapping = run_entity_resolution(raw_authors)
+        logger.info("Resolved to %d canonical authors", len(canonical_authors))
+
+        # Batch upsert Author nodes (Author has no embedding)
+        author_nodes = prepare_author_nodes(canonical_authors)
+        for i in range(0, len(author_nodes), batch_size):
+            batch = author_nodes[i : i + batch_size]
+            self._upsert_without_embedding(Author, batch)
+        logger.info("Upserted %d author nodes", len(author_nodes))
+
+        # Create AUTHORED edges
+        raw_edges = list(iter_author_paper_edges(data))
+        authored_rows = []
+        for edge in raw_edges:
+            raw_uid = f"author:{edge['author_name'].strip().lower().replace(' ', '_')}"
+            canonical_uid = uid_mapping.get(raw_uid, raw_uid)
+            authored_rows.append({"auid": canonical_uid, "puid": edge["paper_uid"], "order": edge["order"]})
+
+        authored_count = 0
+        for i in range(0, len(authored_rows), batch_size):
+            batch = authored_rows[i : i + batch_size]
+            authored_count += self.node_repo.batch_merge_authored(batch)
+        logger.info("Created %d AUTHORED edges", authored_count)
+
+        # Create CO_AUTHORED_WITH edges
+        coauthor_input = [{"author_uid": r["auid"], "paper_uid": r["puid"], "order": r["order"]} for r in authored_rows]
+        coauthor_rows = prepare_coauthor_edges(coauthor_input)
+        coauthor_count = 0
+        for i in range(0, len(coauthor_rows), batch_size):
+            batch = coauthor_rows[i : i + batch_size]
+            coauthor_count += self.node_repo.batch_merge_coauthored(batch)
+        logger.info("Created %d CO_AUTHORED_WITH edges", coauthor_count)
+
+        return {"raw_authors": len(raw_authors), "canonical_authors": len(canonical_authors),
+                "authored_edges": authored_count, "coauthor_edges": coauthor_count}

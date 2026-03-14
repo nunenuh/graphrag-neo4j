@@ -19,8 +19,8 @@ class TestBuildRagGraph:
         graph = build_rag_graph(
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
-            build_context_fn=lambda s, e: "ctx",
+            traverse_fn=lambda ids: ({}, [], []),
+            build_context_fn=lambda s, e, n=None:"ctx",
             generate_fn=lambda q, c: "answer",
         )
         assert graph is not None
@@ -35,8 +35,8 @@ class TestRunRagPipeline:
             question="What is ResNet?",
             embed_fn=lambda q: [0.1, 0.2],
             search_fn=lambda v, k: search_results,
-            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, []),
-            build_context_fn=lambda s, e: "ResNet is a deep network.",
+            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, [], []),
+            build_context_fn=lambda s, e, n=None:"ResNet is a deep network.",
             generate_fn=lambda q, c: f"Based on context: {c}",
         )
         assert "ResNet" in result["answer"]
@@ -51,8 +51,8 @@ class TestRunRagPipeline:
             question="Unknown topic",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
-            build_context_fn=lambda s, e: "",
+            traverse_fn=lambda ids: ({}, [], []),
+            build_context_fn=lambda s, e, n=None:"",
             generate_fn=lambda q, c: "I don't know.",
         )
         assert result["answer"] == "I don't know."
@@ -66,8 +66,8 @@ class TestRunRagPipeline:
             question="What is ResNet?",
             embed_fn=lambda q: [0.1, 0.2],
             search_fn=lambda v, k: search_results,
-            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, []),
-            build_context_fn=lambda s, e: "ResNet context",
+            traverse_fn=lambda ids: ({"m1": {"uid": "m1", "name": "ResNet"}}, [], []),
+            build_context_fn=lambda s, e, n=None:"ResNet context",
             generate_fn=lambda q, c: "ResNet answer",
             classify_fn=lambda q: {
                 "query_type": "FACTUAL_LOOKUP",
@@ -89,8 +89,8 @@ class TestRunRagPipeline:
             question="What is YOLO?",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
-            build_context_fn=lambda s, e: "context",
+            traverse_fn=lambda ids: ({}, [], []),
+            build_context_fn=lambda s, e, n=None:"context",
             generate_fn=lambda q, c: "YOLO is a detection method.",
             provenance_fn=lambda answer, ctx: {
                 "provenance_score": 0.85,
@@ -106,8 +106,8 @@ class TestRunRagPipeline:
             question="test",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
-            build_context_fn=lambda s, e: "",
+            traverse_fn=lambda ids: ({}, [], []),
+            build_context_fn=lambda s, e, n=None:"",
             generate_fn=lambda q, c: "answer",
             enable_provenance=False,
         )
@@ -124,8 +124,9 @@ class TestRunRagPipeline:
             traverse_fn=lambda ids: (
                 {"v1": {"uid": "v1", "name": "VecResult"}},
                 [{"from_id": "v1", "to_id": "v2", "type": "REL"}],
+                [],
             ),
-            build_context_fn=lambda s, e: "merged context",
+            build_context_fn=lambda s, e, n=None:"merged context",
             generate_fn=lambda q, c: "comparison answer",
             classify_fn=lambda q: {
                 "query_type": "COMPARISON",
@@ -147,8 +148,8 @@ class TestRunRagPipeline:
             question="test",
             embed_fn=lambda q: [0.1],
             search_fn=lambda v, k: [],
-            traverse_fn=lambda ids: ({}, []),
-            build_context_fn=lambda s, e: "",
+            traverse_fn=lambda ids: ({}, [], []),
+            build_context_fn=lambda s, e, n=None:"",
             generate_fn=lambda q, c: "answer",
         )
         timings = result["step_timings"]

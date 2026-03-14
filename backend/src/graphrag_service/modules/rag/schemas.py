@@ -29,6 +29,17 @@ class EdgeOut(BaseModel):
     properties: dict = Field(default_factory=dict, description="Edge properties")
 
 
+class TraversalStep(BaseModel):
+    """A single hop in the graph traversal path."""
+
+    hop: int = Field(..., description="Hop number (0=seed, 1=first hop, 2=second hop)")
+    node_count: int = Field(..., description="Number of nodes discovered at this hop")
+    node_labels: list[str] = Field(default_factory=list, description="Node labels at this hop")
+    label_counts: dict[str, int] = Field(default_factory=dict, description="Count per node label")
+    edge_types: list[str] = Field(default_factory=list, description="Relationship types traversed")
+    description: str = Field(..., description="Human-readable description of this hop")
+
+
 class PipelineMetadata(BaseModel):
     """Detailed pipeline execution metadata for evaluation."""
 
@@ -67,6 +78,9 @@ class QueryResponse(BaseModel):
         ..., description="All edges in retrieved subgraph"
     )
     cypher_used: str = Field(..., description="Cypher query used for traversal")
+    traversal_path: list[TraversalStep] = Field(
+        default_factory=list, description="Hop-by-hop traversal path explaining how the answer was constructed"
+    )
     latency_ms: int = Field(..., description="Total latency in milliseconds")
     metadata: PipelineMetadata | None = Field(
         None, description="Detailed pipeline execution metadata"

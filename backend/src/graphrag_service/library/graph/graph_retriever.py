@@ -42,11 +42,14 @@ CYPHER_TEMPLATES: dict[str, str] = {
     "NETWORK": """
         MATCH (a:Author)-[:AUTHORED]->(p:Paper)
         WHERE a.name =~ $pattern
+           OR p.title =~ $pattern
         OPTIONAL MATCH (p)<-[:AUTHORED]-(coauthor:Author)
         WHERE coauthor <> a
+        OPTIONAL MATCH (p)-[:ADDRESSES]->(t:Task)
         RETURN a, labels(a)[0] AS a_label, p, labels(p)[0] AS p_label,
-               collect(DISTINCT coauthor)[..20] AS coauthors
-        LIMIT 10
+               collect(DISTINCT coauthor)[..20] AS coauthors,
+               collect(DISTINCT t.name)[..10] AS tasks
+        LIMIT 20
     """,
 }
 

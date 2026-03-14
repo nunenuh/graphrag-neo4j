@@ -2,6 +2,7 @@
 RAG module repositories — vector search (Cypher) and graph traversal.
 """
 
+from collections import Counter
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -84,10 +85,10 @@ class TraversalRepository:
     def __init__(self, client: Neo4jClient):
         self._client = client
 
-    def traverse(self, node_ids: list[str]) -> tuple[dict[str, dict], list[dict]]:
+    def traverse(self, node_ids: list[str]) -> tuple[dict[str, dict], list[dict], list[dict]]:
         """Perform 2-hop traversal from seed node IDs.
 
-        Returns (nodes_by_id, edges_list).
+        Returns (nodes_by_id, edges_list, traversal_path).
         """
         try:
             rows = self._client.run_query(TRAVERSE_QUERY, {"ids": node_ids})
@@ -99,17 +100,30 @@ class TraversalRepository:
         all_nodes: dict[str, dict] = {}
         all_edges: list[dict] = []
 
+        hop0_ids: set[str] = set()
+        hop1_ids: set[str] = set()
+        hop2_ids: set[str] = set()
+        hop0_label_counter: Counter[str] = Counter()
+        hop1_label_counter: Counter[str] = Counter()
+        hop2_label_counter: Counter[str] = Counter()
+        hop1_edge_types: set[str] = set()
+        hop2_edge_types: set[str] = set()
+
         for r in rows:
-            # Seed node (returned directly with its label)
+            # Seed node (hop 0)
             seed = r["seed"]
             if seed is not None:
                 d = {k: v for k, v in dict(seed).items() if k != "embedding"}
                 d["label"] = r.get("seed_label", "")
                 d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
-                all_nodes[d.get("uid", "")] = d
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                hop0_ids.add(uid)
+                if d["label"]:
+                    hop0_label_counter[d["label"]] += 1
 
-            # Hop-1 and hop-2 nodes (wrapped as {node, label})
-            for wrapped in (r["nodes1"] or []) + (r["nodes2"] or []):
+            # Hop-1 nodes
+            for wrapped in r["nodes1"] or []:
                 if wrapped is None:
                     continue
                 node = wrapped.get("node") if isinstance(wrapped, dict) else wrapped
@@ -119,17 +133,94 @@ class TraversalRepository:
                 if isinstance(wrapped, dict) and wrapped.get("label"):
                     d["label"] = wrapped["label"]
                 d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
-                all_nodes[d.get("uid", "")] = d
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                if uid not in hop0_ids:
+                    hop1_ids.add(uid)
+                    if d.get("label"):
+                        hop1_label_counter[d["label"]] += 1
 
-            for e in (r["e1"] or []) + (r["e2"] or []):
+            # Hop-2 nodes
+            for wrapped in r["nodes2"] or []:
+                if wrapped is None:
+                    continue
+                node = wrapped.get("node") if isinstance(wrapped, dict) else wrapped
+                if node is None:
+                    continue
+                d = {k: v for k, v in dict(node).items() if k != "embedding"}
+                if isinstance(wrapped, dict) and wrapped.get("label"):
+                    d["label"] = wrapped["label"]
+                d["name"] = d.get("name") or d.get("title") or d.get("uid", "")
+                uid = d.get("uid", "")
+                all_nodes[uid] = d
+                if uid not in hop0_ids and uid not in hop1_ids:
+                    hop2_ids.add(uid)
+                    if d.get("label"):
+                        hop2_label_counter[d["label"]] += 1
+
+            # Hop-1 edges
+            for e in r["e1"] or []:
                 if e.get("from") and e.get("to") and e.get("type"):
-                    all_edges.append(
-                        {
-                            "from_id": e["from"],
-                            "to_id": e["to"],
-                            "type": e["type"],
-                            "properties": dict(e.get("props") or {}),
-                        }
-                    )
+                    all_edges.append({
+                        "from_id": e["from"], "to_id": e["to"],
+                        "type": e["type"], "properties": dict(e.get("props") or {}),
+                    })
+                    hop1_edge_types.add(e["type"])
 
-        return all_nodes, all_edges
+            # Hop-2 edges
+            for e in r["e2"] or []:
+                if e.get("from") and e.get("to") and e.get("type"):
+                    all_edges.append({
+                        "from_id": e["from"], "to_id": e["to"],
+                        "type": e["type"], "properties": dict(e.get("props") or {}),
+                    })
+                    hop2_edge_types.add(e["type"])
+
+        # Build traversal path summary with human-friendly descriptions
+        def _label_summary(counter: Counter[str]) -> str:
+            """Format counter as '3 Papers, 2 Methods'."""
+            parts = [f"{count} {label}{'s' if count > 1 else ''}" for label, count in counter.most_common()]
+            return ", ".join(parts)
+
+        EDGE_LABELS = {
+            "AUTHORED": "authorship",
+            "USES_METHOD": "method usage",
+            "EVALUATED_ON": "evaluation",
+            "USED_FOR": "task application",
+            "CITES": "citations",
+        }
+
+        def _edge_summary(edge_types: set[str]) -> str:
+            """Translate edge types to plain English."""
+            labels = [EDGE_LABELS.get(t, t.lower().replace("_", " ")) for t in sorted(edge_types)]
+            return " and ".join(labels) if len(labels) <= 2 else ", ".join(labels[:-1]) + f", and {labels[-1]}"
+
+        seed_desc = _label_summary(hop0_label_counter) if hop0_label_counter else "nodes"
+        traversal_path: list[dict] = [{
+            "hop": 0,
+            "node_count": len(hop0_ids),
+            "node_labels": sorted(hop0_label_counter.keys()),
+            "label_counts": dict(hop0_label_counter),
+            "edge_types": [],
+            "description": f"Found {seed_desc} matching your query",
+        }]
+        if hop1_ids:
+            traversal_path.append({
+                "hop": 1,
+                "node_count": len(hop1_ids),
+                "node_labels": sorted(hop1_label_counter.keys()),
+                "label_counts": dict(hop1_label_counter),
+                "edge_types": sorted(hop1_edge_types),
+                "description": f"Discovered {_label_summary(hop1_label_counter)} through {_edge_summary(hop1_edge_types)}",
+            })
+        if hop2_ids:
+            traversal_path.append({
+                "hop": 2,
+                "node_count": len(hop2_ids),
+                "node_labels": sorted(hop2_label_counter.keys()),
+                "label_counts": dict(hop2_label_counter),
+                "edge_types": sorted(hop2_edge_types),
+                "description": f"Expanded to {_label_summary(hop2_label_counter)} via {_edge_summary(hop2_edge_types)}",
+            })
+
+        return all_nodes, all_edges, traversal_path

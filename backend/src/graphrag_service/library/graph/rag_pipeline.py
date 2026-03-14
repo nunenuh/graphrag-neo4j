@@ -49,8 +49,8 @@ class RAGState(TypedDict):
 def build_rag_graph(
     embed_fn: Callable[[str], list[float]],
     search_fn: Callable[[list[float], int], list[Any]],
-    traverse_fn: Callable[[list[str]], tuple[dict, list]],
-    build_context_fn: Callable[[list, list], str],
+    traverse_fn: Callable[[list[str]], tuple[dict, list, list]],
+    build_context_fn: Callable[..., str],
     generate_fn: Callable[[str, str], str],
     top_k: int = 5,
     classify_fn: Callable[[str], dict] | None = None,
@@ -119,6 +119,7 @@ def build_rag_graph(
         graph_edges: list = []
         vector_nodes: dict = {}
         vector_edges: list = []
+        traversal_path: list = []
 
         if strategy in ("GRAPH_ONLY", "HYBRID_PARALLEL", "HYBRID_SEQUENTIAL"):
             if graph_retrieve_fn is not None:
@@ -151,7 +152,7 @@ def build_rag_graph(
                 # Traverse from seed nodes
                 if seeds:
                     ids = [s["id"] for s in seeds]
-                    vector_nodes, vector_edges = _timed("traverse", traverse_fn, ids)
+                    vector_nodes, vector_edges, traversal_path = _timed("traverse", traverse_fn, ids)
 
                 # Store seed_nodes for context building
                 state_update = {"seed_nodes": seeds}
@@ -181,6 +182,7 @@ def build_rag_graph(
                 "nodes": list(merged_nodes.values()),
                 "edges": merged_edges,
                 "cypher_used": f"{strategy} retrieval",
+                "traversal_path": traversal_path,
             },
             "step_timings": _record_timing(state, "retrieve", ms),
         })
@@ -190,11 +192,13 @@ def build_rag_graph(
 
     def context_step(state: RAGState) -> dict:
         t0 = time.perf_counter()
+        subgraph = state.get("subgraph", {})
         context = _timed(
             "build_context",
             build_context_fn,
             state.get("seed_nodes", []),
-            state.get("subgraph", {}).get("edges", []),
+            subgraph.get("edges", []),
+            subgraph.get("nodes", []),
         )
         ms = round((time.perf_counter() - t0) * 1000, 1)
         logger.bind(context_len=len(context)).info("build_context.results")
@@ -254,8 +258,8 @@ def run_rag_pipeline(
     question: str,
     embed_fn: Callable[[str], list[float]],
     search_fn: Callable[[list[float], int], list[Any]],
-    traverse_fn: Callable[[list[str]], tuple[dict, list]],
-    build_context_fn: Callable[[list, list], str],
+    traverse_fn: Callable[[list[str]], tuple[dict, list, list]],
+    build_context_fn: Callable[..., str],
     generate_fn: Callable[[str, str], str],
     top_k: int = 5,
     classify_fn: Callable[[str], dict] | None = None,

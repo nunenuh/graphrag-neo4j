@@ -5,7 +5,7 @@ import { CypherPanel } from "@/components/CypherPanel";
 import { NodeDetailPanel } from "@/components/NodeDetailPanel";
 import { queryGraph } from "@/lib/api";
 import { ApiError } from "@/types/api";
-import type { SeedNode, GraphNode, GraphEdge, PipelineMetadata } from "@/types/api";
+import type { SeedNode, GraphNode, GraphEdge, PipelineMetadata, TraversalStep } from "@/types/api";
 import { AlertCircle, MessageSquareText } from "lucide-react";
 
 const EXAMPLE_QUESTIONS = [
@@ -25,6 +25,7 @@ export default function QueryPage() {
   const [cypher, setCypher] = useState("");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [metadata, setMetadata] = useState<PipelineMetadata | null>(null);
+  const [traversalPath, setTraversalPath] = useState<TraversalStep[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const handleSubmit = async (question: string) => {
@@ -37,6 +38,7 @@ export default function QueryPage() {
     setCypher("");
     setLatencyMs(null);
     setMetadata(null);
+    setTraversalPath([]);
     setSelectedNodeId(null);
 
     try {
@@ -46,6 +48,7 @@ export default function QueryPage() {
       setNodes(response.nodes);
       setEdges(response.edges);
       setCypher(response.cypher_used);
+      setTraversalPath(response.traversal_path ?? []);
       setLatencyMs(response.latency_ms);
       setMetadata(response.metadata);
     } catch (err) {
@@ -106,6 +109,7 @@ export default function QueryPage() {
                 onSubmit={handleSubmit}
                 answer={answer}
                 seedNodes={seedNodes}
+                traversalPath={traversalPath}
                 isLoading={isLoading}
                 latencyMs={latencyMs ?? undefined}
                 metadata={metadata}

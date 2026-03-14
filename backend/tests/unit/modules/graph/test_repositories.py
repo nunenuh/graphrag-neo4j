@@ -205,3 +205,25 @@ class TestGraphExploreRepository:
         repo = GraphExploreRepository(mock_neo4j_client)
         with pytest.raises(RepositoryException, match="Node search failed"):
             repo.search_nodes("test")
+
+
+class TestBatchMergeCoauthored:
+    def test_returns_count(self):
+        mock_client = MagicMock()
+        repo = NodeRepository(mock_client)
+        rows = [
+            {"from_uid": "author:a", "to_uid": "author:b", "paper_count": 3},
+            {"from_uid": "author:a", "to_uid": "author:c", "paper_count": 1},
+        ]
+        count = repo.batch_merge_coauthored(rows)
+        assert count == 2
+        mock_client.run_query.assert_called_once()
+        cypher = mock_client.run_query.call_args[0][0]
+        assert "CO_AUTHORED_WITH" in cypher
+        assert "UNWIND" in cypher
+
+    def test_empty_rows_returns_zero(self):
+        mock_client = MagicMock()
+        repo = NodeRepository(mock_client)
+        assert repo.batch_merge_coauthored([]) == 0
+        mock_client.run_query.assert_not_called()

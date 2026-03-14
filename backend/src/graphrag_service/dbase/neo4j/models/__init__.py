@@ -2,7 +2,7 @@
 
 from .base import BaseNode
 from .nodes import ALL_MODELS, ALL_NODE_MODELS, Author, Dataset, Method, Paper, Task
-from .relationships import AuthoredRel, EvaluatedOnRel, UsedForRel
+from .relationships import AuthoredRel, CoAuthoredWithRel, EvaluatedOnRel, UsedForRel
 
 __all__ = [
     "BaseNode",
@@ -16,4 +16,5 @@ __all__ = [
     "UsedForRel",
     "EvaluatedOnRel",
     "AuthoredRel",
+    "CoAuthoredWithRel",
 ]
