@@ -45,7 +45,7 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
         {label}
       </dt>
       <dd className="text-xs text-foreground/90 leading-relaxed">
-        <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-wrap break-words">
+        <div className="max-h-48 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 whitespace-pre-wrap break-all">
           {value}
         </div>
       </dd>
@@ -80,9 +80,9 @@ export function NodeDetailPanel({
   );
 
   return (
-    <div className="absolute top-3 right-3 bottom-3 w-72 z-20 rounded-xl border border-border/50 bg-card/95 backdrop-blur-md shadow-xl flex flex-col overflow-hidden">
+    <div className="absolute top-3 right-3 bottom-3 w-80 z-20 rounded-xl border border-border/50 bg-card/95 backdrop-blur-md shadow-xl flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-start gap-2.5 p-3 pr-2 border-b border-border/40">
+      <div className="flex items-start gap-2.5 p-3 border-b border-border/40">
         <div className={`mt-0.5 ${config?.color ?? "text-muted-foreground"}`}>
           <Icon size={16} />
         </div>
@@ -111,8 +111,8 @@ export function NodeDetailPanel({
       </div>
 
       {/* Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-3 pr-4 space-y-3">
+      <ScrollArea className="flex-1 overflow-x-hidden">
+        <div className="p-3 pr-5 space-y-3 overflow-hidden">
           {/* Core fields by node type */}
           {label === "Paper" && (
             <>
