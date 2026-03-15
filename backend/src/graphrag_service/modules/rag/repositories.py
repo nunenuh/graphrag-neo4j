@@ -32,7 +32,9 @@ TRAVERSE_QUERIES: dict[int, str] = {
         LIMIT 30
         WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
         UNWIND hop1_nodes AS n1
-        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        OPTIONAL MATCH (n1)-[r2]-(n2)
+            WHERE n2.uid <> seed.uid
+            AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
         ORDER BY type(r2)
         LIMIT 50
@@ -50,7 +52,9 @@ TRAVERSE_QUERIES: dict[int, str] = {
         LIMIT 25
         WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
         UNWIND hop1_nodes AS n1
-        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        OPTIONAL MATCH (n1)-[r2]-(n2)
+            WHERE n2.uid <> seed.uid
+            AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
         ORDER BY type(r2)
         LIMIT 40
@@ -76,7 +80,9 @@ TRAVERSE_QUERIES: dict[int, str] = {
         LIMIT 20
         WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
         UNWIND hop1_nodes AS n1
-        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        OPTIONAL MATCH (n1)-[r2]-(n2)
+            WHERE n2.uid <> seed.uid
+            AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
         ORDER BY type(r2)
         LIMIT 30
