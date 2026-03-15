@@ -36,7 +36,6 @@ TRAVERSE_QUERIES: dict[int, str] = {
             WHERE n2.uid <> seed.uid
             AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
-        ORDER BY type(r2)
         LIMIT 50
         RETURN seed, labels(seed)[0] AS seed_label,
                [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
@@ -56,13 +55,11 @@ TRAVERSE_QUERIES: dict[int, str] = {
             WHERE n2.uid <> seed.uid
             AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
-        ORDER BY type(r2)
         LIMIT 40
         WITH seed, rels1, collect(DISTINCT n1) AS cn1, collect(DISTINCT r2) AS rels2, collect(DISTINCT n2) AS hop2_nodes
         UNWIND hop2_nodes AS n2
         OPTIONAL MATCH (n2)-[r3]-(n3) WHERE NOT n3.uid IN [seed.uid]
         WITH seed, rels1, cn1, rels2, n2, r3, n3
-        ORDER BY type(r3)
         LIMIT 30
         RETURN seed, labels(seed)[0] AS seed_label,
                [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
@@ -84,19 +81,16 @@ TRAVERSE_QUERIES: dict[int, str] = {
             WHERE n2.uid <> seed.uid
             AND NOT type(r2) IN ['AUTHORED', 'CO_AUTHORED_WITH']
         WITH seed, rels1, n1, r2, n2
-        ORDER BY type(r2)
         LIMIT 30
         WITH seed, rels1, collect(DISTINCT n1) AS cn1, collect(DISTINCT r2) AS rels2, collect(DISTINCT n2) AS hop2_nodes
         UNWIND hop2_nodes AS n2
         OPTIONAL MATCH (n2)-[r3]-(n3) WHERE NOT n3.uid IN [seed.uid]
         WITH seed, rels1, cn1, rels2, n2, r3, n3
-        ORDER BY type(r3)
         LIMIT 25
         WITH seed, rels1, cn1, rels2, collect(DISTINCT n2) AS cn2, collect(DISTINCT r3) AS rels3, collect(DISTINCT n3) AS hop3_nodes
         UNWIND hop3_nodes AS n3
         OPTIONAL MATCH (n3)-[r4]-(n4) WHERE NOT n4.uid IN [seed.uid]
         WITH seed, rels1, cn1, rels2, cn2, rels3, n3, r4, n4
-        ORDER BY type(r4)
         LIMIT 20
         RETURN seed, labels(seed)[0] AS seed_label,
                [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
