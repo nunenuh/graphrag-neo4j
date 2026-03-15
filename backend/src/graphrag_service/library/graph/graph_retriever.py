@@ -45,10 +45,12 @@ CYPHER_TEMPLATES: dict[str, str] = {
            OR p.title =~ $pattern
         OPTIONAL MATCH (p)<-[:AUTHORED]-(coauthor:Author)
         WHERE coauthor <> a
-        OPTIONAL MATCH (p)-[:ADDRESSES]->(t:Task)
+        OPTIONAL MATCH (p)-[:ADDRESSES_TASK]->(t:Task)
+        OPTIONAL MATCH (p)-[:USES_METHOD]->(m:Method)
         RETURN a, labels(a)[0] AS a_label, p, labels(p)[0] AS p_label,
                collect(DISTINCT coauthor)[..20] AS coauthors,
-               collect(DISTINCT t.name)[..10] AS tasks
+               collect(DISTINCT t.name)[..10] AS tasks,
+               collect(DISTINCT m.name)[..10] AS methods
         LIMIT 20
     """,
 }

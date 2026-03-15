@@ -7,10 +7,19 @@ Each model inherits from BaseNode (uid + created_at) and declares:
 - Relationships via RelationshipTo / RelationshipFrom
 """
 
-from neomodel import ArrayProperty, FloatProperty, IntegerProperty, RelationshipFrom, RelationshipTo, StringProperty
+from neomodel import ArrayProperty, BooleanProperty, FloatProperty, IntegerProperty, RelationshipFrom, RelationshipTo, StringProperty
 
 from .base import BaseNode
-from .relationships import AuthoredRel, CoAuthoredWithRel, EvaluatedOnRel, UsedForRel
+from .relationships import (
+    AddressesTaskRel,
+    AuthoredRel,
+    CoAuthoredWithRel,
+    EvaluatedOnRel,
+    HasCodeRel,
+    IntroducesMethodRel,
+    UsedForRel,
+    UsesMethodRel,
+)
 
 
 class Author(BaseNode):
@@ -49,7 +58,10 @@ class Paper(BaseNode):
     title = StringProperty(required=True)
     abstract = StringProperty()
     year = StringProperty()
+    arxiv_id = StringProperty(index=True)
     url = StringProperty()
+    url_pdf = StringProperty()
+    date = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
 
     # Analytics
@@ -58,6 +70,18 @@ class Paper(BaseNode):
     # Paper <-[:AUTHORED]- Author
     authors = RelationshipFrom("Author", "AUTHORED", model=AuthoredRel)
 
+    # Paper -[:USES_METHOD]-> Method
+    methods_used = RelationshipTo("Method", "USES_METHOD", model=UsesMethodRel)
+
+    # Paper -[:INTRODUCES_METHOD]-> Method
+    methods_introduced = RelationshipTo("Method", "INTRODUCES_METHOD", model=IntroducesMethodRel)
+
+    # Paper -[:ADDRESSES_TASK]-> Task
+    tasks_addressed = RelationshipTo("Task", "ADDRESSES_TASK", model=AddressesTaskRel)
+
+    # Paper -[:HAS_CODE]-> Repository
+    repositories = RelationshipTo("Repository", "HAS_CODE", model=HasCodeRel)
+
 
 class Method(BaseNode):
     """ML method / model node."""
@@ -65,6 +89,8 @@ class Method(BaseNode):
     name = StringProperty(required=True, index=True)
     full_name = StringProperty()
     description = StringProperty()
+    category = StringProperty(index=True)
+    introduced_year = IntegerProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
 
     # Analytics
@@ -73,6 +99,12 @@ class Method(BaseNode):
 
     # Method -[:EVALUATED_ON]-> Dataset
     evaluated_on = RelationshipTo("Dataset", "EVALUATED_ON", model=EvaluatedOnRel)
+
+    # Method <-[:USES_METHOD]- Paper
+    used_by_papers = RelationshipFrom("Paper", "USES_METHOD", model=UsesMethodRel)
+
+    # Method <-[:INTRODUCES_METHOD]- Paper
+    introduced_by_paper = RelationshipFrom("Paper", "INTRODUCES_METHOD", model=IntroducesMethodRel)
 
 
 class Task(BaseNode):
@@ -89,6 +121,9 @@ class Task(BaseNode):
     # Task <-[:USED_FOR]- Dataset
     datasets = RelationshipFrom("Dataset", "USED_FOR", model=UsedForRel)
 
+    # Task <-[:ADDRESSES_TASK]- Paper
+    addressed_by_papers = RelationshipFrom("Paper", "ADDRESSES_TASK", model=AddressesTaskRel)
+
 
 class Dataset(BaseNode):
     """Dataset node."""
@@ -96,6 +131,8 @@ class Dataset(BaseNode):
     name = StringProperty(required=True, index=True)
     description = StringProperty()
     modalities = StringProperty()
+    num_papers = IntegerProperty()
+    url = StringProperty()
     embedding = ArrayProperty(base_property=FloatProperty())
 
     # Dataset -[:USED_FOR]-> Task
@@ -104,8 +141,20 @@ class Dataset(BaseNode):
     evaluated_by = RelationshipFrom("Method", "EVALUATED_ON", model=EvaluatedOnRel)
 
 
+class Repository(BaseNode):
+    """Code repository node (e.g., GitHub)."""
+
+    url = StringProperty(required=True, unique_index=True)
+    framework = StringProperty()
+    stars = IntegerProperty()
+    is_official = BooleanProperty(default=False)
+
+    # Repository <-[:HAS_CODE]- Paper
+    papers = RelationshipFrom("Paper", "HAS_CODE", model=HasCodeRel)
+
+
 # Registry of all node models (Author excluded — has no embedding/vector index)
 ALL_NODE_MODELS: list[type[BaseNode]] = [Paper, Method, Task, Dataset]
 
-# All models including Author (for schema installation)
-ALL_MODELS: list[type[BaseNode]] = [Author, Paper, Method, Task, Dataset]
+# All models including Author and Repository (for schema installation)
+ALL_MODELS: list[type[BaseNode]] = [Author, Paper, Method, Task, Dataset, Repository]

@@ -56,13 +56,14 @@ class TestGraphStatsEndpoint:
         mock_neo4j_client.run_query.side_effect = [
             [{"c": 5}],   # Author
             [{"c": 10}], [{"c": 20}], [{"c": 30}], [{"c": 40}],
+            [{"c": 2}],   # Repository
             [{"t": "USED_FOR"}],
             [{"c": 5}],
         ]
         resp = client.get("/api/v1/graph/stats", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_nodes"] == 105
+        assert data["total_nodes"] == 107
         assert "node_counts" in data
 
 
