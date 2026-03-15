@@ -6,7 +6,10 @@ from graphrag_service.library.parsers import (
     iter_author_paper_edges,
     iter_authors,
     iter_datasets,
+    iter_method_paper_edges,
     iter_methods,
+    iter_paper_method_edges,
+    iter_paper_task_edges,
     iter_papers,
     iter_tasks,
 )
@@ -225,3 +228,143 @@ class TestIterAuthorPaperEdges:
         edges = list(iter_author_paper_edges(data, max_papers=1))
         assert len(edges) == 1
         assert edges[0]["author_name"] == "Alice"
+
+
+class TestIterPaperMethodEdges:
+    def test_basic(self):
+        data = [
+            {
+                "title": "P1", "abstract": "A1", "paper_url": "http://p1",
+                "methods": [{"name": "ResNet"}, {"name": "BatchNorm"}],
+            },
+        ]
+        edges = list(iter_paper_method_edges(data))
+        assert len(edges) == 2
+        assert edges[0]["paper_uid"] == "http://p1"
+        assert edges[0]["method_name"] == "ResNet"
+        assert edges[1]["method_name"] == "BatchNorm"
+
+    def test_skips_empty_method_name(self):
+        data = [
+            {"title": "P1", "abstract": "A1", "paper_url": "u", "methods": [{"name": ""}, {"name": "Valid"}]},
+        ]
+        edges = list(iter_paper_method_edges(data))
+        assert len(edges) == 1
+        assert edges[0]["method_name"] == "Valid"
+
+    def test_skips_paper_without_title(self):
+        data = [{"abstract": "A1", "methods": [{"name": "M1"}]}]
+        assert list(iter_paper_method_edges(data)) == []
+
+    def test_no_methods_key(self):
+        data = [{"title": "P1", "abstract": "A1", "paper_url": "u"}]
+        assert list(iter_paper_method_edges(data)) == []
+
+
+class TestIterPaperTaskEdges:
+    def test_basic(self):
+        data = [
+            {
+                "title": "P1", "abstract": "A1", "paper_url": "http://p1",
+                "tasks": ["Image Classification", "Object Detection"],
+            },
+        ]
+        edges = list(iter_paper_task_edges(data))
+        assert len(edges) == 2
+        assert edges[0]["paper_uid"] == "http://p1"
+        assert edges[0]["task_name"] == "Image Classification"
+
+    def test_skips_empty_task_name(self):
+        data = [
+            {"title": "P1", "abstract": "A1", "paper_url": "u", "tasks": ["", "Valid"]},
+        ]
+        edges = list(iter_paper_task_edges(data))
+        assert len(edges) == 1
+
+    def test_no_tasks_key(self):
+        data = [{"title": "P1", "abstract": "A1", "paper_url": "u"}]
+        assert list(iter_paper_task_edges(data)) == []
+
+
+class TestIterMethodPaperEdges:
+    def test_basic(self):
+        data = [
+            {"name": "ResNet", "paper": {"url": "http://resnet-paper"}},
+        ]
+        edges = list(iter_method_paper_edges(data))
+        assert len(edges) == 1
+        assert edges[0]["method_name"] == "ResNet"
+        assert edges[0]["paper_url"] == "http://resnet-paper"
+
+    def test_skips_missing_paper(self):
+        data = [{"name": "ResNet"}]
+        assert list(iter_method_paper_edges(data)) == []
+
+    def test_skips_empty_paper_url(self):
+        data = [{"name": "ResNet", "paper": {"url": ""}}]
+        assert list(iter_method_paper_edges(data)) == []
+
+    def test_skips_missing_name(self):
+        data = [{"paper": {"url": "http://paper"}}]
+        assert list(iter_method_paper_edges(data)) == []
+
+
+class TestNewPaperFields:
+    def test_arxiv_id_and_date(self):
+        data = [
+            {
+                "title": "P1", "abstract": "A1", "paper_url": "u",
+                "arxiv_id": "2301.12345", "url_pdf": "http://pdf",
+                "date": "2023-01-15",
+            },
+        ]
+        results = list(iter_papers(data))
+        assert results[0]["arxiv_id"] == "2301.12345"
+        assert results[0]["url_pdf"] == "http://pdf"
+        assert results[0]["date"] == "2023-01-15"
+        assert results[0]["year"] == "2023"
+
+    def test_missing_new_fields_default_empty(self):
+        data = [{"title": "P1", "abstract": "A1", "paper_url": "u"}]
+        results = list(iter_papers(data))
+        assert results[0]["arxiv_id"] == ""
+        assert results[0]["url_pdf"] == ""
+        assert results[0]["date"] == ""
+
+
+class TestNewMethodFields:
+    def test_category_from_collections(self):
+        data = [
+            {
+                "name": "ResNet",
+                "collections": [{"area": "Computer Vision", "collection": "CNNs"}],
+            },
+        ]
+        results = list(iter_methods(data))
+        assert results[0]["category"] == "Computer Vision"
+
+    def test_introduced_year(self):
+        data = [{"name": "ResNet", "introduced_year": 2015}]
+        results = list(iter_methods(data))
+        assert results[0]["introduced_year"] == 2015
+
+    def test_no_collections(self):
+        data = [{"name": "M1"}]
+        results = list(iter_methods(data))
+        assert results[0]["category"] == ""
+
+
+class TestNewDatasetFields:
+    def test_num_papers_and_url(self):
+        data = [
+            {"name": "MNIST", "num_papers": 7651, "homepage": "http://mnist"},
+        ]
+        results = list(iter_datasets(data))
+        assert results[0]["num_papers"] == 7651
+        assert results[0]["url"] == "http://mnist"
+
+    def test_missing_new_fields(self):
+        data = [{"name": "D1"}]
+        results = list(iter_datasets(data))
+        assert results[0]["num_papers"] is None
+        assert results[0]["url"] == ""

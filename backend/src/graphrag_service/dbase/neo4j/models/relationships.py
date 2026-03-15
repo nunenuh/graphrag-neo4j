@@ -4,7 +4,7 @@ Neo4j relationship models for the GraphRAG knowledge graph.
 Uses neomodel StructuredRel for typed relationship properties.
 """
 
-from neomodel import IntegerProperty, StringProperty, StructuredRel
+from neomodel import BooleanProperty, IntegerProperty, StringProperty, StructuredRel
 
 
 class UsedForRel(StructuredRel):
@@ -34,3 +34,27 @@ class CoAuthoredWithRel(StructuredRel):
     """Author -[:CO_AUTHORED_WITH]-> Author. Derived from shared papers."""
 
     paper_count = IntegerProperty(default=0)
+
+
+class UsesMethodRel(StructuredRel):
+    """Paper -[:USES_METHOD]-> Method."""
+
+    pass
+
+
+class IntroducesMethodRel(StructuredRel):
+    """Paper -[:INTRODUCES_METHOD]-> Method."""
+
+    pass
+
+
+class AddressesTaskRel(StructuredRel):
+    """Paper -[:ADDRESSES_TASK]-> Task."""
+
+    pass
+
+
+class HasCodeRel(StructuredRel):
+    """Paper -[:HAS_CODE]-> Repository."""
+
+    is_official = BooleanProperty(default=False)

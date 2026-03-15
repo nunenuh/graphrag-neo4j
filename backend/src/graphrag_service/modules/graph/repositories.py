@@ -19,22 +19,30 @@ EXPLORE_QUERY = """
 CALL {
     MATCH (a:Author)-[r:AUTHORED]->(b:Paper)
     RETURN a, type(r) AS rel, b
-    LIMIT toInteger($limit * 0.3)
+    LIMIT toInteger($limit * 0.2)
   UNION ALL
     MATCH (a:Paper)-[r:USES_METHOD]->(b:Method)
     RETURN a, type(r) AS rel, b
-    LIMIT toInteger($limit * 0.2)
+    LIMIT toInteger($limit * 0.15)
+  UNION ALL
+    MATCH (a:Paper)-[r:ADDRESSES_TASK]->(b:Task)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.15)
   UNION ALL
     MATCH (a:Method)-[r:EVALUATED_ON]->(b:Dataset)
     RETURN a, type(r) AS rel, b
-    LIMIT toInteger($limit * 0.2)
+    LIMIT toInteger($limit * 0.15)
   UNION ALL
     MATCH (a:Dataset)-[r:USED_FOR]->(b:Task)
     RETURN a, type(r) AS rel, b
-    LIMIT toInteger($limit * 0.2)
+    LIMIT toInteger($limit * 0.15)
+  UNION ALL
+    MATCH (a:Paper)-[r:HAS_CODE]->(b:Repository)
+    RETURN a, type(r) AS rel, b
+    LIMIT toInteger($limit * 0.1)
   UNION ALL
     MATCH (a)-[r]->(b)
-    WHERE NOT type(r) IN ['AUTHORED', 'USES_METHOD', 'EVALUATED_ON', 'USED_FOR']
+    WHERE NOT type(r) IN ['AUTHORED', 'USES_METHOD', 'ADDRESSES_TASK', 'EVALUATED_ON', 'USED_FOR', 'HAS_CODE']
     RETURN a, type(r) AS rel, b
     LIMIT toInteger($limit * 0.1)
 }
@@ -248,6 +256,45 @@ class NodeRepository:
             "MATCH (p:Paper {uid: row.puid}) "
             "MERGE (a)-[r:AUTHORED]->(p) "
             "SET r.order = row.order",
+            {"rows": rows},
+        )
+        return len(rows)
+
+    def batch_merge_uses_method(self, rows: list[dict]) -> int:
+        """Batch MERGE Paper-[:USES_METHOD]->Method. rows: [{paper_uid, method_name}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (p:Paper {uid: row.paper_uid}) "
+            "MATCH (m:Method {name: row.method_name}) "
+            "MERGE (p)-[:USES_METHOD]->(m)",
+            {"rows": rows},
+        )
+        return len(rows)
+
+    def batch_merge_addresses_task(self, rows: list[dict]) -> int:
+        """Batch MERGE Paper-[:ADDRESSES_TASK]->Task. rows: [{paper_uid, task_name}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (p:Paper {uid: row.paper_uid}) "
+            "MATCH (t:Task {name: row.task_name}) "
+            "MERGE (p)-[:ADDRESSES_TASK]->(t)",
+            {"rows": rows},
+        )
+        return len(rows)
+
+    def batch_merge_introduces_method(self, rows: list[dict]) -> int:
+        """Batch MERGE Paper-[:INTRODUCES_METHOD]->Method. rows: [{paper_url, method_name}]"""
+        if not rows:
+            return 0
+        self._client.run_query(
+            "UNWIND $rows AS row "
+            "MATCH (p:Paper {uid: row.paper_url}) "
+            "MATCH (m:Method {name: row.method_name}) "
+            "MERGE (p)-[:INTRODUCES_METHOD]->(m)",
             {"rows": rows},
         )
         return len(rows)

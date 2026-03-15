@@ -20,6 +20,7 @@ const NODE_COLORS: Record<string, string> = {
   Task: "#a855f7",
   Dataset: "#f97316",
   Author: "#64748b",
+  Repository: "#ec4899",
 };
 
 const DEFAULT_COLOR = "#64748b";

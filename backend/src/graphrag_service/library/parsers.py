@@ -35,12 +35,16 @@ def iter_papers(
             continue
         if limit > 0 and yielded >= limit:
             return
+        date_raw = p.get("date") or p.get("published") or ""
         yield {
             "uid": p.get("paper_url", p.get("id", "")),
             "title": p["title"].strip(),
             "abstract": p["abstract"].strip()[:2000],
-            "year": p.get("published", "")[:4],
+            "year": str(date_raw)[:4] if date_raw else "",
             "url": p.get("paper_url", ""),
+            "arxiv_id": p.get("arxiv_id") or "",
+            "url_pdf": p.get("url_pdf") or "",
+            "date": str(date_raw)[:10] if date_raw else "",
         }
         yielded += 1
 
@@ -60,11 +64,16 @@ def iter_methods(
             continue
         if limit > 0 and yielded >= limit:
             return
+        # Extract category from collections
+        collections = m.get("collections") or []
+        category = collections[0].get("area", "") if collections else ""
         yield {
             "uid": m.get("id", m["name"]),
             "name": m["name"].strip(),
             "full_name": (m.get("full_name") or m["name"]).strip(),
             "description": (m.get("description") or "")[:2000],
+            "category": category,
+            "introduced_year": m.get("introduced_year"),
         }
         yielded += 1
 
@@ -113,6 +122,8 @@ def iter_datasets(
             "name": d["name"].strip(),
             "description": (d.get("description") or "")[:1000],
             "modalities": ", ".join(d.get("modalities") or []),
+            "num_papers": d.get("num_papers"),
+            "url": d.get("url") or d.get("homepage") or "",
         }
         yielded += 1
 
@@ -133,6 +144,61 @@ def iter_authors(data: list, max_papers: int = 5000) -> Iterator[dict]:
                 continue
             seen.add(name)
             yield {"uid": f"author:{name.lower().replace(' ', '_')}", "name": name}
+
+
+def iter_paper_method_edges(
+    data: list, max_papers: int = 5000
+) -> Iterator[dict]:
+    """Extract paper→method edges from papers JSON.
+
+    Yields dicts with keys: paper_uid, method_name.
+    Source: papers.json → methods[] field.
+    """
+    papers = data[:max_papers] if max_papers > 0 else data
+    for p in papers:
+        if not p.get("title") or not p.get("abstract"):
+            continue
+        paper_uid = p.get("paper_url", p.get("id", ""))
+        for m in p.get("methods") or []:
+            method_name = (m.get("name") or "").strip()
+            if method_name:
+                yield {"paper_uid": paper_uid, "method_name": method_name}
+
+
+def iter_paper_task_edges(
+    data: list, max_papers: int = 5000
+) -> Iterator[dict]:
+    """Extract paper→task edges from papers JSON.
+
+    Yields dicts with keys: paper_uid, task_name.
+    Source: papers.json → tasks[] field.
+    """
+    papers = data[:max_papers] if max_papers > 0 else data
+    for p in papers:
+        if not p.get("title") or not p.get("abstract"):
+            continue
+        paper_uid = p.get("paper_url", p.get("id", ""))
+        for task_name in p.get("tasks") or []:
+            task_name = (task_name or "").strip()
+            if task_name:
+                yield {"paper_uid": paper_uid, "task_name": task_name}
+
+
+def iter_method_paper_edges(
+    data: list, max_items: int = 0
+) -> Iterator[dict]:
+    """Extract method→introducing paper edges from methods JSON.
+
+    Yields dicts with keys: method_name, paper_url.
+    Source: methods.json → paper.url field.
+    """
+    items = data[:max_items] if max_items > 0 else data
+    for m in items:
+        method_name = (m.get("name") or "").strip()
+        paper = m.get("paper") or {}
+        paper_url = (paper.get("url") or "").strip()
+        if method_name and paper_url:
+            yield {"method_name": method_name, "paper_url": paper_url}
 
 
 def iter_author_paper_edges(

@@ -14,7 +14,14 @@ from loguru import logger
 from graphrag_service.core.config import get_settings
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.dbase.neo4j.models import Author, Dataset, Method, Paper, Task
-from graphrag_service.library.parsers import iter_authors, iter_author_paper_edges, load_json
+from graphrag_service.library.parsers import (
+    iter_authors,
+    iter_author_paper_edges,
+    iter_method_paper_edges,
+    iter_paper_method_edges,
+    iter_paper_task_edges,
+    load_json,
+)
 from graphrag_service.modules.graph.author_ingestion import (
     run_entity_resolution, prepare_author_nodes, prepare_coauthor_edges,
 )
@@ -297,6 +304,53 @@ class GraphUseCase:
 
         auth_total += self.node_repo.batch_merge_authored(authored_batch)
         logger.info(f"AUTHORED: {auth_total} edges")
+
+        # Phase 3: USES_METHOD + ADDRESSES_TASK from papers.json
+        logger.info("Ingesting USES_METHOD + ADDRESSES_TASK relationships...")
+
+        uses_method_batch: list[dict] = []
+        um_total = 0
+        for edge in tqdm(
+            iter_paper_method_edges(papers_data, max_papers=settings.MAX_PAPERS),
+            desc="USES_METHOD",
+        ):
+            uses_method_batch.append(edge)
+            if len(uses_method_batch) >= batch_size:
+                um_total += self.node_repo.batch_merge_uses_method(uses_method_batch)
+                uses_method_batch = []
+        um_total += self.node_repo.batch_merge_uses_method(uses_method_batch)
+        logger.info(f"USES_METHOD: {um_total} edges")
+
+        addresses_task_batch: list[dict] = []
+        at_total = 0
+        for edge in tqdm(
+            iter_paper_task_edges(papers_data, max_papers=settings.MAX_PAPERS),
+            desc="ADDRESSES_TASK",
+        ):
+            addresses_task_batch.append(edge)
+            if len(addresses_task_batch) >= batch_size:
+                at_total += self.node_repo.batch_merge_addresses_task(addresses_task_batch)
+                addresses_task_batch = []
+        at_total += self.node_repo.batch_merge_addresses_task(addresses_task_batch)
+        logger.info(f"ADDRESSES_TASK: {at_total} edges")
+
+        # Phase 4: INTRODUCES_METHOD from methods.json
+        logger.info("Ingesting INTRODUCES_METHOD relationships...")
+        methods_data = load_json(self.service.data_dir() / "methods.json")
+
+        introduces_batch: list[dict] = []
+        im_total = 0
+        for edge in tqdm(
+            iter_method_paper_edges(methods_data, max_items=settings.MAX_METHODS),
+            desc="INTRODUCES_METHOD",
+        ):
+            introduces_batch.append(edge)
+            if len(introduces_batch) >= batch_size:
+                im_total += self.node_repo.batch_merge_introduces_method(introduces_batch)
+                introduces_batch = []
+        im_total += self.node_repo.batch_merge_introduces_method(introduces_batch)
+        logger.info(f"INTRODUCES_METHOD: {im_total} edges")
+
         logger.info("Relationships ingestion done")
 
     def ingest_authors(self, batch_size: int = 500) -> dict:

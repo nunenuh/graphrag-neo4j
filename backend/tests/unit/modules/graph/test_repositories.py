@@ -142,13 +142,14 @@ class TestGraphExploreRepository:
             [{"c": 20}],  # Method
             [{"c": 30}],  # Task
             [{"c": 40}],  # Dataset
+            [{"c": 2}],   # Repository
             [{"t": "USED_FOR"}, {"t": "EVALUATED_ON"}],
             [{"c": 5}],
             [{"c": 3}],
         ]
         repo = GraphExploreRepository(mock_neo4j_client)
         stats = repo.get_stats()
-        assert stats["total_nodes"] == 105
+        assert stats["total_nodes"] == 107
         assert stats["total_edges"] == 8
         assert stats["node_counts"]["Paper"] == 10
         assert stats["edge_counts"]["USED_FOR"] == 5
