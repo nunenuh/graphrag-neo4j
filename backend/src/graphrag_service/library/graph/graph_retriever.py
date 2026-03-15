@@ -13,11 +13,11 @@ CYPHER_TEMPLATES: dict[str, str] = {
         WHERE n.name =~ $pattern OR n.title =~ $pattern
         OPTIONAL MATCH (n)-[r]-(m)
         RETURN n, labels(n)[0] AS label,
-               collect(DISTINCT {{
+               collect(DISTINCT {
                    from: n.uid, to: m.uid, type: type(r),
                    props: properties(r)
-               }})[..30] AS edges,
-               collect(DISTINCT {{node: m, label: labels(m)[0]}}) AS neighbors
+               })[..20] AS edges,
+               collect(DISTINCT {node: m, label: labels(m)[0]})[..20] AS neighbors
         LIMIT 5
     """,
     "TEMPORAL": """
@@ -32,11 +32,11 @@ CYPHER_TEMPLATES: dict[str, str] = {
         WHERE n.name =~ $pattern OR n.title =~ $pattern
         OPTIONAL MATCH (n)-[r]-(m)
         RETURN n, labels(n)[0] AS label, count(DISTINCT m) AS neighbor_count,
-               collect(DISTINCT {{
+               collect(DISTINCT {
                    from: n.uid, to: m.uid, type: type(r),
                    props: properties(r)
-               }})[..30] AS edges,
-               collect(DISTINCT {{node: m, label: labels(m)[0]}}) AS neighbors
+               })[..20] AS edges,
+               collect(DISTINCT {node: m, label: labels(m)[0]})[..20] AS neighbors
         LIMIT 10
     """,
     "NETWORK": """
@@ -48,10 +48,10 @@ CYPHER_TEMPLATES: dict[str, str] = {
         OPTIONAL MATCH (p)-[:ADDRESSES_TASK]->(t:Task)
         OPTIONAL MATCH (p)-[:USES_METHOD]->(m:Method)
         RETURN a, labels(a)[0] AS a_label, p, labels(p)[0] AS p_label,
-               collect(DISTINCT coauthor)[..20] AS coauthors,
+               collect(DISTINCT coauthor)[..10] AS coauthors,
                collect(DISTINCT t.name)[..10] AS tasks,
                collect(DISTINCT m.name)[..10] AS methods
-        LIMIT 20
+        LIMIT 10
     """,
 }
 
@@ -61,12 +61,12 @@ FALLBACK_TEMPLATE = """
     WHERE n.name =~ $pattern OR n.title =~ $pattern
     OPTIONAL MATCH (n)-[r]-(m)
     RETURN n, labels(n)[0] AS label,
-           collect(DISTINCT {{
+           collect(DISTINCT {
                from: n.uid, to: m.uid, type: type(r),
                props: properties(r)
-           }})[..30] AS edges,
-           collect(DISTINCT {{node: m, label: labels(m)[0]}}) AS neighbors
-    LIMIT 10
+           })[..20] AS edges,
+           collect(DISTINCT {node: m, label: labels(m)[0]})[..20] AS neighbors
+    LIMIT 5
 """
 
 

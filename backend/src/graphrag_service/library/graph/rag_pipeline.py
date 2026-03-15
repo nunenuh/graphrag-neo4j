@@ -226,6 +226,13 @@ def build_rag_graph(
         timings["retrieve"] = ms
         timings["retrieve_detail"] = sub_timings
 
+        # Filter edges to only include those whose endpoints exist in merged nodes
+        node_uids = set(merged_nodes.keys())
+        valid_edges = [
+            e for e in merged_edges
+            if e.get("from_id") in node_uids and e.get("to_id") in node_uids
+        ]
+
         state_update.update({
             "graph_results": {"nodes": graph_nodes, "edges": graph_edges},
             "vector_results": {"nodes": vector_nodes, "edges": vector_edges},
@@ -233,7 +240,7 @@ def build_rag_graph(
             "subgraph": {
                 "seed_nodes": state_update.get("seed_nodes", state.get("seed_nodes", [])),
                 "nodes": list(merged_nodes.values()),
-                "edges": merged_edges,
+                "edges": valid_edges,
                 "cypher_used": f"{strategy} retrieval",
                 "traversal_path": traversal_path,
             },

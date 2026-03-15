@@ -20,8 +20,8 @@ RESET := \033[0m
 .PHONY: help setup env install install-backend install-frontend \
        neo4j neo4j-stop neo4j-logs neo4j-browser \
        schema download ingest ingest-authors ingest-all \
-       backend frontend dev dev-stop \
-       docker-up docker-down docker-build docker-logs \
+       run backend frontend dev dev-stop \
+       docker-run docker-up docker-down docker-build docker-logs \
        test test-unit test-integration test-e2e test-coverage \
        lint format clean clean-data clean-neo4j \
        check-env check-neo4j status info
@@ -49,10 +49,10 @@ help:
 	@echo "  $(GREEN)make ingest-all$(RESET)         - Full pipeline: neo4j -> schema -> download -> ingest"
 	@echo ""
 	@echo "$(GREEN)Development:$(RESET)"
-	@echo "  $(GREEN)make run$(RESET)                - Start FastAPI application"
-	@echo "  $(GREEN)make dev$(RESET)                - Start backend + frontend in parallel"
-	@echo "  $(GREEN)make backend$(RESET)            - Start FastAPI dev server (port 8005)"
-	@echo "  $(GREEN)make frontend$(RESET)           - Start Vite dev server (port 5173)"
+	@echo "  $(GREEN)make run$(RESET)                - Start backend (8005) + frontend (5173)"
+	@echo "  $(GREEN)make dev$(RESET)                - Alias for make run"
+	@echo "  $(GREEN)make backend$(RESET)            - Start FastAPI dev server only (port 8005)"
+	@echo "  $(GREEN)make frontend$(RESET)           - Start Vite dev server only (port 5173)"
 	@echo "  $(GREEN)make dev-stop$(RESET)           - Kill dev servers"
 	@echo ""
 	@echo "$(GREEN)Testing & Quality:$(RESET)"
@@ -64,7 +64,7 @@ help:
 	@echo "  $(GREEN)make format$(RESET)             - Auto-format code with black and isort"
 	@echo ""
 	@echo "$(GREEN)Docker:$(RESET)"
-	@echo "  $(GREEN)make docker-up$(RESET)          - Start all services (docker compose)"
+	@echo "  $(GREEN)make docker-run$(RESET)         - Start all services (neo4j + backend + frontend)"
 	@echo "  $(GREEN)make docker-build$(RESET)       - Build and start all services"
 	@echo "  $(GREEN)make docker-down$(RESET)        - Stop all services"
 	@echo "  $(GREEN)make docker-logs$(RESET)        - Tail all service logs"
@@ -159,21 +159,23 @@ ingest-all: neo4j schema download ingest ## Full pipeline: neo4j -> schema -> do
 # Development servers
 # ──────────────────────────────────────────────
 
-run: check-env ## Start FastAPI application
-	@echo "$(BLUE)Starting FastAPI application...$(RESET)"
-	cd backend && $(POETRY) run start
+run: check-env check-neo4j dev-stop ## Start backend (8005) + frontend (5173) in parallel
+	@echo "$(BLUE)Starting backend (8005) and frontend (5173)...$(RESET)"
+	@trap 'kill 0' EXIT; \
+		(cd backend && APP_DEBUG=true $(POETRY) run dev) & \
+		echo "Waiting for backend to be ready..." && \
+		until curl -sf http://localhost:$(PORT)/api/v1/health/ping >/dev/null 2>&1; do sleep 1; done && \
+		echo "$(GREEN)Backend ready! Starting frontend...$(RESET)" && \
+		(cd frontend && npm run dev) & \
+		wait
 
-backend: check-env dev-stop ## Start FastAPI dev server (port 8005)
+backend: check-env dev-stop ## Start FastAPI dev server only (port 8005)
 	cd backend && APP_DEBUG=true $(POETRY) run dev
 
-frontend: ## Start Vite dev server (port 5173)
+frontend: ## Start Vite dev server only (port 5173)
 	cd frontend && npm run dev
 
-dev: ## Start backend + frontend in parallel
-	@echo "$(BLUE)Starting backend (8005) and frontend (5173)...$(RESET)"
-	@make backend &
-	@make frontend &
-	@wait
+dev: run ## Alias for 'make run'
 
 dev-stop: ## Kill dev servers
 	@-pkill -9 -f "uvicorn graphrag_service" 2>/dev/null || true
@@ -191,9 +193,12 @@ dev-stop: ## Kill dev servers
 # Docker (full stack)
 # ──────────────────────────────────────────────
 
-docker-up: ## Start all services (docker compose)
+docker-run: docker-up ## Alias for docker-up (start all services)
+
+docker-up: ## Start all services: neo4j + backend + frontend (docker compose)
 	docker compose -f docker/docker-compose.dev.yml up -d
-	@echo "$(GREEN)Services started! Check logs with: make docker-logs$(RESET)"
+	@echo "$(GREEN)Services started! Backend: http://localhost:8005 | Frontend: http://localhost:3000$(RESET)"
+	@echo "$(GREEN)Check logs with: make docker-logs$(RESET)"
 
 docker-build: ## Build and start all services
 	docker compose -f docker/docker-compose.dev.yml up --build -d
