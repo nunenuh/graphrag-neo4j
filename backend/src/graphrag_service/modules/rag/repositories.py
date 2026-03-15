@@ -17,6 +17,9 @@ TRAVERSE_QUERIES: dict[int, str] = {
     1: """
         MATCH (seed) WHERE seed.uid IN $ids
         OPTIONAL MATCH (seed)-[r1]-(n1)
+        WITH seed, r1, n1
+        ORDER BY type(r1)
+        LIMIT 30
         RETURN seed, labels(seed)[0] AS seed_label,
                collect(DISTINCT {from: startNode(r1).uid, to: endNode(r1).uid, type: type(r1), props: properties(r1)}) AS e1,
                collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1
@@ -24,40 +27,79 @@ TRAVERSE_QUERIES: dict[int, str] = {
     2: """
         MATCH (seed) WHERE seed.uid IN $ids
         OPTIONAL MATCH (seed)-[r1]-(n1)
-        OPTIONAL MATCH (n1)-[r2]-(n2)
+        WITH seed, r1, n1
+        ORDER BY type(r1)
+        LIMIT 30
+        WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
+        UNWIND hop1_nodes AS n1
+        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        WITH seed, rels1, n1, r2, n2
+        ORDER BY type(r2)
+        LIMIT 50
         RETURN seed, labels(seed)[0] AS seed_label,
-               collect(DISTINCT {from: startNode(r1).uid, to: endNode(r1).uid, type: type(r1), props: properties(r1)}) AS e1,
-               collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
-               collect(DISTINCT {from: startNode(r2).uid,  to: endNode(r2).uid, type: type(r2), props: properties(r2)}) AS e2,
+               [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
+               [n IN collect(DISTINCT n1) | {node: n, label: labels(n)[0]}] AS nodes1,
+               collect(DISTINCT {from: startNode(r2).uid, to: endNode(r2).uid, type: type(r2), props: properties(r2)}) AS e2,
                collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2
     """,
     3: """
         MATCH (seed) WHERE seed.uid IN $ids
         OPTIONAL MATCH (seed)-[r1]-(n1)
-        OPTIONAL MATCH (n1)-[r2]-(n2)
-        OPTIONAL MATCH (n2)-[r3]-(n3)
+        WITH seed, r1, n1
+        ORDER BY type(r1)
+        LIMIT 25
+        WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
+        UNWIND hop1_nodes AS n1
+        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        WITH seed, rels1, n1, r2, n2
+        ORDER BY type(r2)
+        LIMIT 40
+        WITH seed, rels1, collect(DISTINCT n1) AS cn1, collect(DISTINCT r2) AS rels2, collect(DISTINCT n2) AS hop2_nodes
+        UNWIND hop2_nodes AS n2
+        OPTIONAL MATCH (n2)-[r3]-(n3) WHERE NOT n3.uid IN [seed.uid]
+        WITH seed, rels1, cn1, rels2, n2, r3, n3
+        ORDER BY type(r3)
+        LIMIT 30
         RETURN seed, labels(seed)[0] AS seed_label,
-               collect(DISTINCT {from: startNode(r1).uid, to: endNode(r1).uid, type: type(r1), props: properties(r1)}) AS e1,
-               collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
-               collect(DISTINCT {from: startNode(r2).uid,  to: endNode(r2).uid, type: type(r2), props: properties(r2)}) AS e2,
-               collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2,
-               collect(DISTINCT {from: startNode(r3).uid,  to: endNode(r3).uid, type: type(r3), props: properties(r3)}) AS e3,
+               [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
+               [n IN cn1 | {node: n, label: labels(n)[0]}] AS nodes1,
+               [r IN rels2 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e2,
+               [n IN collect(DISTINCT n2) | {node: n, label: labels(n)[0]}] AS nodes2,
+               collect(DISTINCT {from: startNode(r3).uid, to: endNode(r3).uid, type: type(r3), props: properties(r3)}) AS e3,
                collect(DISTINCT {node: n3, label: labels(n3)[0]}) AS nodes3
     """,
     4: """
         MATCH (seed) WHERE seed.uid IN $ids
         OPTIONAL MATCH (seed)-[r1]-(n1)
-        OPTIONAL MATCH (n1)-[r2]-(n2)
-        OPTIONAL MATCH (n2)-[r3]-(n3)
-        OPTIONAL MATCH (n3)-[r4]-(n4)
+        WITH seed, r1, n1
+        ORDER BY type(r1)
+        LIMIT 20
+        WITH seed, collect(DISTINCT r1) AS rels1, collect(DISTINCT n1) AS hop1_nodes
+        UNWIND hop1_nodes AS n1
+        OPTIONAL MATCH (n1)-[r2]-(n2) WHERE n2.uid <> seed.uid
+        WITH seed, rels1, n1, r2, n2
+        ORDER BY type(r2)
+        LIMIT 30
+        WITH seed, rels1, collect(DISTINCT n1) AS cn1, collect(DISTINCT r2) AS rels2, collect(DISTINCT n2) AS hop2_nodes
+        UNWIND hop2_nodes AS n2
+        OPTIONAL MATCH (n2)-[r3]-(n3) WHERE NOT n3.uid IN [seed.uid]
+        WITH seed, rels1, cn1, rels2, n2, r3, n3
+        ORDER BY type(r3)
+        LIMIT 25
+        WITH seed, rels1, cn1, rels2, collect(DISTINCT n2) AS cn2, collect(DISTINCT r3) AS rels3, collect(DISTINCT n3) AS hop3_nodes
+        UNWIND hop3_nodes AS n3
+        OPTIONAL MATCH (n3)-[r4]-(n4) WHERE NOT n4.uid IN [seed.uid]
+        WITH seed, rels1, cn1, rels2, cn2, rels3, n3, r4, n4
+        ORDER BY type(r4)
+        LIMIT 20
         RETURN seed, labels(seed)[0] AS seed_label,
-               collect(DISTINCT {from: startNode(r1).uid, to: endNode(r1).uid, type: type(r1), props: properties(r1)}) AS e1,
-               collect(DISTINCT {node: n1, label: labels(n1)[0]}) AS nodes1,
-               collect(DISTINCT {from: startNode(r2).uid,  to: endNode(r2).uid, type: type(r2), props: properties(r2)}) AS e2,
-               collect(DISTINCT {node: n2, label: labels(n2)[0]}) AS nodes2,
-               collect(DISTINCT {from: startNode(r3).uid,  to: endNode(r3).uid, type: type(r3), props: properties(r3)}) AS e3,
-               collect(DISTINCT {node: n3, label: labels(n3)[0]}) AS nodes3,
-               collect(DISTINCT {from: startNode(r4).uid,  to: endNode(r4).uid, type: type(r4), props: properties(r4)}) AS e4,
+               [r IN rels1 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e1,
+               [n IN cn1 | {node: n, label: labels(n)[0]}] AS nodes1,
+               [r IN rels2 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e2,
+               [n IN cn2 | {node: n, label: labels(n)[0]}] AS nodes2,
+               [r IN rels3 | {from: startNode(r).uid, to: endNode(r).uid, type: type(r), props: properties(r)}] AS e3,
+               [n IN collect(DISTINCT n3) | {node: n, label: labels(n)[0]}] AS nodes3,
+               collect(DISTINCT {from: startNode(r4).uid, to: endNode(r4).uid, type: type(r4), props: properties(r4)}) AS e4,
                collect(DISTINCT {node: n4, label: labels(n4)[0]}) AS nodes4
     """,
 }

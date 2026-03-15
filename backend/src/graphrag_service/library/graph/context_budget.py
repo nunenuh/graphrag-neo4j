@@ -122,7 +122,7 @@ def allocate_context(
 
     # Group edges by type, prioritize AUTHORED and CO_AUTHORED_WITH
     from collections import defaultdict
-    priority_types = ["AUTHORED", "CO_AUTHORED_WITH", "ADDRESSES", "USES_METHOD", "EVALUATED_ON"]
+    priority_types = ["AUTHORED", "CO_AUTHORED_WITH", "ADDRESSES_TASK", "USES_METHOD", "INTRODUCES_METHOD", "EVALUATED_ON"]
     edges_by_type: dict[str, list[dict]] = defaultdict(list)
     for e in edges:
         edges_by_type[e.get("type", "UNKNOWN")].append(e)
