@@ -70,7 +70,7 @@ export interface PipelineMetadata {
   node_count: number;
   edge_count: number;
   context_length: number;
-  step_timings: Record<string, number>;
+  step_timings: Record<string, number | Record<string, number>>;
   query_type: string;
   retrieval_strategy: string;
   provenance_score: number | null;

@@ -40,7 +40,7 @@ export function ChatPanel({
   exampleQuestions,
 }: ChatPanelProps) {
   const [question, setQuestion] = useState("");
-  const [showMetadata, setShowMetadata] = useState(false);
+  const [showMetadata, setShowMetadata] = useState(true);
   const [showContext, setShowContext] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -245,31 +245,57 @@ export function ChatPanel({
                         </div>
 
                         {/* Step timings */}
-                        {Object.keys(metadata.step_timings).length > 0 && (
-                          <div className="flex items-start gap-2">
-                            <Zap size={11} className="text-amber-500 mt-0.5 shrink-0" />
-                            <div className="flex-1 space-y-1">
-                              {Object.entries(metadata.step_timings).map(([step, ms]) => {
-                                const totalMs = latencyMs || Object.values(metadata.step_timings).reduce((a, b) => a + b, 0);
-                                const pct = totalMs > 0 ? (ms / totalMs) * 100 : 0;
-                                return (
-                                  <div key={step} className="flex items-center gap-2">
-                                    <span className="text-muted-foreground w-24 shrink-0">{step.replace(/_/g, " ")}</span>
-                                    <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
-                                      <div
-                                        className="h-full rounded-full bg-primary/50"
-                                        style={{ width: `${Math.min(pct, 100)}%` }}
-                                      />
-                                    </div>
-                                    <span className="tabular-nums font-medium w-16 text-right shrink-0">
-                                      {ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`}
-                                    </span>
+                        {Object.keys(metadata.step_timings).length > 0 && (() => {
+                          const topSteps = Object.entries(metadata.step_timings).filter(
+                            ([step]) => step !== "retrieve_detail"
+                          );
+                          const rawDetail = metadata.step_timings.retrieve_detail;
+                          const retrieveDetail = (typeof rawDetail === "object" && rawDetail !== null)
+                            ? rawDetail as Record<string, number>
+                            : undefined;
+                          const totalMs = latencyMs || topSteps.reduce((a, [, v]) => a + (typeof v === "number" ? v : 0), 0);
+
+                          const renderBar = (step: string, ms: number, indent = false) => {
+                            const pct = totalMs > 0 ? (ms / totalMs) * 100 : 0;
+                            return (
+                              <div key={step} className={`flex items-center gap-2 ${indent ? "pl-4" : ""}`}>
+                                <span className={`text-muted-foreground shrink-0 ${indent ? "w-24 text-[10px]" : "w-24"}`}>
+                                  {indent && <span className="text-muted-foreground/40 mr-1">↳</span>}
+                                  {step.replace(/_/g, " ")}
+                                </span>
+                                <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${indent ? "bg-primary/30" : "bg-primary/50"}`}
+                                    style={{ width: `${Math.min(pct, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="tabular-nums font-medium w-16 text-right shrink-0">
+                                  {ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms.toFixed(0)}ms`}
+                                </span>
+                              </div>
+                            );
+                          };
+
+                          return (
+                            <div className="flex items-start gap-2">
+                              <Zap size={11} className="text-amber-500 mt-0.5 shrink-0" />
+                              <div className="flex-1 space-y-1">
+                                {topSteps.map(([step, ms]) => (
+                                  <div key={step}>
+                                    {renderBar(step, typeof ms === "number" ? ms : 0)}
+                                    {step === "retrieve" && retrieveDetail && (
+                                      <div className="space-y-1 mt-1">
+                                        {Object.entries(retrieveDetail).map(([sub, subMs]) =>
+                                          renderBar(sub, subMs, true)
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

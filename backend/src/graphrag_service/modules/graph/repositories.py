@@ -108,6 +108,11 @@ class SchemaRepository:
             self._client.run_query(cypher)
             logger.info(f"Vector index created: {index_name} (dim={dim})")
 
+        # Create fulltext indexes for BM25 search
+        from graphrag_service.library.graph.bm25_search import create_fulltext_indexes
+        created = create_fulltext_indexes(self._client.run_query)
+        logger.info(f"Fulltext indexes created: {created}")
+
         logger.info("Schema installation complete")
 
     def get_labels(self) -> List[str]:

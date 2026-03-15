@@ -12,7 +12,8 @@ from graphrag_service.library.graph.graph_retriever import graph_retrieve
 from graphrag_service.library.graph.hybrid_retriever import merge_nodes_rrf
 from graphrag_service.library.graph.provenance import validate_provenance
 from graphrag_service.library.graph.query_classifier import classify_query
-from graphrag_service.library.graph.router import route_query
+from graphrag_service.library.graph.bm25_search import bm25_search
+from graphrag_service.library.graph.router import route_query, suggest_depth, clamp_depth
 from graphrag_service.library.llm.providers import get_chat_model
 
 from .repositories import TraversalRepository, VectorSearchRepository
@@ -28,8 +29,12 @@ class RAGUseCase:
         self.vector_repo = VectorSearchRepository(client)
         self.traversal_repo = TraversalRepository(client)
 
-    def query(self, question: str) -> dict:
+    def query(self, question: str, depth: int | None = None) -> dict:
         """Run the RAG pipeline using LangGraph.
+
+        Args:
+            question: Natural language question.
+            depth: Optional traversal depth override (1-4). If None, router suggests.
 
         Returns the full pipeline state dict.
         """
@@ -55,6 +60,9 @@ class RAGUseCase:
         def _provenance(answer: str, context: str) -> dict:
             return validate_provenance(answer, context, get_chat_model)
 
+        def _bm25(query: str, top_k: int) -> list[dict]:
+            return bm25_search(query, self.client.run_query, top_k)
+
         result = run_rag_pipeline(
             question=question,
             embed_fn=self.service.embed_question,
@@ -69,5 +77,8 @@ class RAGUseCase:
             merge_fn=merge_nodes_rrf,
             provenance_fn=_provenance,
             enable_provenance=settings.ENABLE_PROVENANCE,
+            suggest_depth_fn=suggest_depth,
+            requested_depth=clamp_depth(depth) if depth is not None else None,
+            bm25_fn=_bm25,
         )
         return result

@@ -9,6 +9,7 @@ class QueryRequest(BaseModel):
     """RAG query request."""
 
     question: str = Field(..., min_length=1, max_length=2000, description="The question to ask")
+    depth: int | None = Field(None, ge=1, le=4, description="Traversal depth (1-4 hops). If omitted, auto-selected by query type.")
 
 
 class SeedNodeOut(BaseModel):
@@ -60,9 +61,9 @@ class PipelineMetadata(BaseModel):
     unsupported_claims: list[str] = Field(
         default_factory=list, description="Claims not supported by context"
     )
-    step_timings: dict[str, float] = Field(
+    step_timings: dict[str, float | dict[str, float]] = Field(
         default_factory=dict,
-        description="Per-step durations in ms",
+        description="Per-step durations in ms. 'retrieve_detail' contains sub-step breakdown.",
     )
 
 
