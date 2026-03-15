@@ -33,7 +33,7 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
     t0 = time.time()
     settings = get_settings()
     try:
-        result = usecase.query(req.question)
+        result = usecase.query(req.question, depth=req.depth)
         subgraph = result.get("subgraph", {})
         latency_ms = int((time.time() - t0) * 1000)
 
@@ -61,7 +61,7 @@ async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_clien
             embedding_model=settings.EMBEDDING_MODEL,
             embedding_dim=settings.EMBEDDING_DIM,
             top_k=settings.TOP_K_SEED_NODES,
-            traversal_depth=settings.TRAVERSAL_DEPTH,
+            traversal_depth=result.get("traversal_depth", settings.TRAVERSAL_DEPTH),
             seed_count=len(seed_nodes_out),
             node_count=len(nodes_out),
             edge_count=len(edges_out),

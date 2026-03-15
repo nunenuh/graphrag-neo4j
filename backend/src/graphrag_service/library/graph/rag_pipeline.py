@@ -32,6 +32,7 @@ class RAGState(TypedDict):
     question: str
     query_type: str
     retrieval_strategy: str
+    traversal_depth: int
     entities: list[str]
     query_vector: list[float]
     seed_nodes: list[dict]
@@ -43,7 +44,7 @@ class RAGState(TypedDict):
     answer: str
     provenance_score: float
     unsupported_claims: list[str]
-    step_timings: dict[str, float]
+    step_timings: dict[str, Any]
 
 
 def build_rag_graph(
@@ -59,11 +60,18 @@ def build_rag_graph(
     merge_fn: Callable | None = None,
     provenance_fn: Callable[[str, str], dict] | None = None,
     enable_provenance: bool = True,
+    suggest_depth_fn: Callable[[str], int] | None = None,
+    requested_depth: int | None = None,
+    bm25_fn: Callable[[str, int], list[dict]] | None = None,
 ) -> StateGraph:
     """Build the branching RAG pipeline graph with injected functions.
 
     When classify_fn and route_fn are provided, uses agentic routing.
     Otherwise falls back to the linear VECTOR_ONLY pipeline.
+
+    Args:
+        requested_depth: User-requested traversal depth (overrides router suggestion).
+        suggest_depth_fn: Function to suggest depth based on query type.
     """
 
     def _record_timing(state: RAGState, step: str, duration_ms: float) -> dict:
@@ -79,6 +87,7 @@ def build_rag_graph(
             return {
                 "query_type": "EXPLORATORY",
                 "retrieval_strategy": "VECTOR_ONLY",
+                "traversal_depth": requested_depth or 2,
                 "entities": [],
                 "step_timings": _record_timing(state, "analyze", 0.0),
             }
@@ -87,9 +96,16 @@ def build_rag_graph(
         ms = round((time.perf_counter() - t0) * 1000, 1)
         query_type = classification.get("query_type", "EXPLORATORY")
         strategy = route_fn(query_type) if route_fn else "VECTOR_ONLY"
+        # Determine depth: user request > router suggestion > default
+        depth = requested_depth
+        if depth is None and suggest_depth_fn is not None:
+            depth = suggest_depth_fn(query_type)
+        if depth is None:
+            depth = 2
         return {
             "query_type": query_type,
             "retrieval_strategy": strategy,
+            "traversal_depth": depth,
             "entities": classification.get("entities", []),
             "step_timings": _record_timing(state, "analyze", ms),
         }
@@ -114,26 +130,33 @@ def build_rag_graph(
     def retrieve_step(state: RAGState) -> dict:
         strategy = state.get("retrieval_strategy", "VECTOR_ONLY")
         t0 = time.perf_counter()
+        sub_timings: dict[str, float] = {}
 
         graph_nodes: dict = {}
         graph_edges: list = []
         vector_nodes: dict = {}
         vector_edges: list = []
+        bm25_nodes: dict = {}
         traversal_path: list = []
 
         if strategy in ("GRAPH_ONLY", "HYBRID_PARALLEL", "HYBRID_SEQUENTIAL"):
             if graph_retrieve_fn is not None:
+                t_sub = time.perf_counter()
                 graph_nodes, graph_edges = _timed(
                     "graph_retrieve",
                     graph_retrieve_fn,
                     state.get("query_type", "EXPLORATORY"),
                     state.get("entities", []),
                 )
+                sub_timings["graph_retrieve"] = round((time.perf_counter() - t_sub) * 1000, 1)
 
         if strategy in ("VECTOR_ONLY", "HYBRID_PARALLEL", "HYBRID_SEQUENTIAL"):
             vector = state.get("query_vector", [])
             if vector:
+                t_sub = time.perf_counter()
                 results = _timed("vector_search", search_fn, vector, top_k)
+                sub_timings["vector_search"] = round((time.perf_counter() - t_sub) * 1000, 1)
+
                 seeds = [
                     {
                         "id": r.id,
@@ -152,7 +175,10 @@ def build_rag_graph(
                 # Traverse from seed nodes
                 if seeds:
                     ids = [s["id"] for s in seeds]
-                    vector_nodes, vector_edges, traversal_path = _timed("traverse", traverse_fn, ids)
+                    t_sub = time.perf_counter()
+                    traverse_depth = state.get("traversal_depth", 2)
+                    vector_nodes, vector_edges, traversal_path = _timed("traverse", traverse_fn, ids, traverse_depth)
+                    sub_timings["graph_traverse"] = round((time.perf_counter() - t_sub) * 1000, 1)
 
                 # Store seed_nodes for context building
                 state_update = {"seed_nodes": seeds}
@@ -161,17 +187,44 @@ def build_rag_graph(
         else:
             state_update = {"seed_nodes": state.get("seed_nodes", [])}
 
-        ms = round((time.perf_counter() - t0) * 1000, 1)
+        # BM25 fulltext search (runs for hybrid strategies when available)
+        if bm25_fn is not None and strategy in ("HYBRID_PARALLEL", "HYBRID_SEQUENTIAL"):
+            t_sub = time.perf_counter()
+            bm25_results = _timed("bm25_search", bm25_fn, state["question"], top_k)
+            sub_timings["bm25_search"] = round((time.perf_counter() - t_sub) * 1000, 1)
+            for item in bm25_results:
+                uid = item.get("uid", "")
+                if uid:
+                    bm25_nodes[uid] = {
+                        "uid": uid,
+                        "label": item.get("label", ""),
+                        "name": item.get("name", ""),
+                        **item.get("properties", {}),
+                    }
 
         # Merge results
         if strategy in ("HYBRID_PARALLEL", "HYBRID_SEQUENTIAL") and merge_fn:
+            t_sub = time.perf_counter()
+            # Merge vector + graph, then fold in BM25 nodes
             merged_nodes, merged_edges = merge_fn(
                 graph_nodes, graph_edges, vector_nodes, vector_edges
             )
+            # Add BM25-only nodes that aren't already in merged results
+            for uid, node in bm25_nodes.items():
+                if uid not in merged_nodes:
+                    merged_nodes[uid] = node
+            sub_timings["rrf_merge"] = round((time.perf_counter() - t_sub) * 1000, 1)
         elif strategy == "GRAPH_ONLY":
             merged_nodes, merged_edges = graph_nodes, graph_edges
         else:
             merged_nodes, merged_edges = vector_nodes, vector_edges
+
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+
+        # Record both the total retrieve time and sub-step breakdown
+        timings = dict(state.get("step_timings") or {})
+        timings["retrieve"] = ms
+        timings["retrieve_detail"] = sub_timings
 
         state_update.update({
             "graph_results": {"nodes": graph_nodes, "edges": graph_edges},
@@ -184,7 +237,7 @@ def build_rag_graph(
                 "cypher_used": f"{strategy} retrieval",
                 "traversal_path": traversal_path,
             },
-            "step_timings": _record_timing(state, "retrieve", ms),
+            "step_timings": timings,
         })
         return state_update
 
@@ -268,6 +321,9 @@ def run_rag_pipeline(
     merge_fn: Callable | None = None,
     provenance_fn: Callable[[str, str], dict] | None = None,
     enable_provenance: bool = True,
+    suggest_depth_fn: Callable[[str], int] | None = None,
+    requested_depth: int | None = None,
+    bm25_fn: Callable[[str, int], list[dict]] | None = None,
 ) -> RAGState:
     """Build and run the RAG pipeline, returning the final state."""
     logger.bind(question=question[:100], top_k=top_k).info("rag_pipeline.start")
@@ -285,6 +341,9 @@ def run_rag_pipeline(
         merge_fn=merge_fn,
         provenance_fn=provenance_fn,
         enable_provenance=enable_provenance,
+        suggest_depth_fn=suggest_depth_fn,
+        requested_depth=requested_depth,
+        bm25_fn=bm25_fn,
     )
     app = graph.compile()
     result = app.invoke({"question": question})
