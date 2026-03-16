@@ -1,12 +1,13 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { NavBar } from "@/components/NavBar";
+import LandingPage from "@/pages/LandingPage";
 import DashboardPage from "@/pages/DashboardPage";
 import QueryPage from "@/pages/QueryPage";
 import ExplorePage from "@/pages/ExplorePage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import EvaluationPage from "@/pages/EvaluationPage";
 
-export default function App() {
+function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-screen w-screen flex flex-col bg-background relative overflow-hidden font-sans text-foreground">
       {/* Dynamic Ambient Background to power the Glassmorphism */}
@@ -19,16 +20,31 @@ export default function App() {
       <div className="relative z-10 flex flex-col h-full overflow-hidden">
         <NavBar />
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/query" element={<QueryPage />} />
-            <Route path="/explore" element={<ExplorePage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/evaluation" element={<EvaluationPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          {children}
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  const location = useLocation();
+  const isLanding = location.pathname === "/";
+
+  if (isLanding) {
+    return <LandingPage />;
+  }
+
+  return (
+    <AppLayout>
+      <Routes>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/query" element={<QueryPage />} />
+        <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/evaluation" element={<EvaluationPage />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </AppLayout>
   );
 }

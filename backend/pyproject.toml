@@ -39,6 +39,8 @@ cdlib = "^0.4"
 igraph = "^0.11"
 leidenalg = "^0.10"
 tiktoken = "^0.7"
+slowapi = "^0.1.9"
+python-multipart = "^0.0.22"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"

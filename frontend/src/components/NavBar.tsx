@@ -11,7 +11,7 @@ import { StatusBadges } from "@/components/StatusBadges";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/query", label: "Query", icon: MessageSquare },
   { to: "/explore", label: "Explore", icon: Globe },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -43,7 +43,7 @@ export function NavBar() {
             <NavLink
               key={to}
               to={to}
-              end={to === "/"}
+              end
               className={({ isActive }) =>
                 `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isActive
                   ? "text-foreground bg-accent"

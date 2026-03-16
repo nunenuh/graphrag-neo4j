@@ -5,10 +5,11 @@ RAG query API endpoint.
 import time
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from graphrag_service.core.config import get_settings
 from graphrag_service.core.dependencies import get_neo4j_client
+from graphrag_service.middleware.rate_limit import limiter
 from loguru import logger
 from graphrag_service.dbase.neo4j.client import Neo4jClient
 from graphrag_service.shared.exceptions import ServiceException
@@ -20,7 +21,8 @@ router = APIRouter()
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query(req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_client)):
+@limiter.limit("30/minute")
+async def query(request: Request, req: QueryRequest, client: Neo4jClient = Depends(get_neo4j_client)):
     """
     Ask a question to the knowledge graph.
 

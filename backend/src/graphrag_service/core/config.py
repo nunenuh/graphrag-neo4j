@@ -5,7 +5,8 @@ Application configuration using Pydantic settings.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import ConfigDict, Field
+from loguru import logger
+from pydantic import ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings
 
 # Project root: backend/../ → the repo root where .env lives
@@ -118,6 +119,37 @@ class Settings(BaseSettings):
     def ENVIRONMENT(self) -> str:
         """Alias for APP_ENVIRONMENT."""
         return self.APP_ENVIRONMENT
+
+    @model_validator(mode="after")
+    def _validate_config(self) -> "Settings":
+        """Validate configuration at startup — warn about insecure defaults."""
+        warnings: list[str] = []
+
+        if self.APP_X_API_KEY == "changeme":
+            warnings.append("APP_X_API_KEY is set to default 'changeme' — change it in production")
+
+        if self.APP_ENVIRONMENT == "production":
+            if self.APP_DEBUG:
+                warnings.append("APP_DEBUG is True in production — set to False")
+            if self.APP_X_API_KEY == "changeme":
+                raise ValueError("APP_X_API_KEY must be changed from default in production")
+            if len(self.APP_X_API_KEY) < 16:
+                raise ValueError("APP_X_API_KEY must be at least 16 characters in production")
+
+        # Validate LLM provider has matching API key
+        provider_key_map = {
+            "openai": self.OPENAI_API_KEY,
+            "google": self.GOOGLE_API_KEY,
+            "qwen": self.QWEN_API_KEY,
+        }
+        if self.LLM_PROVIDER in provider_key_map:
+            if not provider_key_map[self.LLM_PROVIDER]:
+                warnings.append(f"No API key set for LLM provider '{self.LLM_PROVIDER}'")
+
+        for w in warnings:
+            logger.warning(f"config.warning: {w}")
+
+        return self
 
 
 @lru_cache()
