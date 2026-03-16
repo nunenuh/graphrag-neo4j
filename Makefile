@@ -49,10 +49,10 @@ help:
 	@echo "  $(GREEN)make ingest-all$(RESET)         - Full pipeline: neo4j -> schema -> download -> ingest"
 	@echo ""
 	@echo "$(GREEN)Development:$(RESET)"
-	@echo "  $(GREEN)make run$(RESET)                - Start backend (8005) + frontend (5173)"
+	@echo "  $(GREEN)make run$(RESET)                - Start backend (8005) + frontend (5179)"
 	@echo "  $(GREEN)make dev$(RESET)                - Alias for make run"
 	@echo "  $(GREEN)make backend$(RESET)            - Start FastAPI dev server only (port 8005)"
-	@echo "  $(GREEN)make frontend$(RESET)           - Start Vite dev server only (port 5173)"
+	@echo "  $(GREEN)make frontend$(RESET)           - Start Vite dev server only (port 5179)"
 	@echo "  $(GREEN)make dev-stop$(RESET)           - Kill dev servers"
 	@echo ""
 	@echo "$(GREEN)Testing & Quality:$(RESET)"
@@ -159,8 +159,8 @@ ingest-all: neo4j schema download ingest ## Full pipeline: neo4j -> schema -> do
 # Development servers
 # ──────────────────────────────────────────────
 
-run: check-env check-neo4j dev-stop ## Start backend (8005) + frontend (5173) in parallel
-	@echo "$(BLUE)Starting backend (8005) and frontend (5173)...$(RESET)"
+run: check-env check-neo4j dev-stop ## Start backend (8005) + frontend (5179) in parallel
+	@echo "$(BLUE)Starting backend (8005) and frontend (5179)...$(RESET)"
 	@trap 'kill 0' EXIT; \
 		(cd backend && APP_DEBUG=true $(POETRY) run dev) & \
 		echo "Waiting for backend to be ready..." && \
@@ -172,7 +172,7 @@ run: check-env check-neo4j dev-stop ## Start backend (8005) + frontend (5173) in
 backend: check-env dev-stop ## Start FastAPI dev server only (port 8005)
 	cd backend && APP_DEBUG=true $(POETRY) run dev
 
-frontend: ## Start Vite dev server only (port 5173)
+frontend: ## Start Vite dev server only (port 5179)
 	cd frontend && npm run dev
 
 dev: run ## Alias for 'make run'
@@ -185,7 +185,7 @@ dev-stop: ## Kill dev servers
 		sleep 0.5; \
 	done
 	@-fuser -k -9 $(PORT)/tcp 2>/dev/null || true
-	@-fuser -k -9 5173/tcp 2>/dev/null || true
+	@-fuser -k -9 5179/tcp 2>/dev/null || true
 	@sleep 0.5
 	@echo "$(GREEN)Dev servers stopped$(RESET)"
 
@@ -321,7 +321,7 @@ status: ## Show status of all services
 	@echo "\n$(BLUE)=== Backend ===$(RESET)"
 	@curl -s http://localhost:8005/api/v1/health/ping 2>/dev/null || echo "not running"
 	@echo "\n$(BLUE)=== Frontend ===$(RESET)"
-	@curl -s -o /dev/null -w "running (port 5173)" http://localhost:5173 2>/dev/null || echo "not running"
+	@curl -s -o /dev/null -w "running (port 5179)" http://localhost:5179 2>/dev/null || echo "not running"
 	@echo "\n$(BLUE)=== Data ===$(RESET)"
 	@ls -lh data/*.json 2>/dev/null || echo "no data files"
 	@echo ""
